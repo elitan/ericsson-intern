@@ -1,6 +1,6 @@
 # Ericsson Intern
 
-Unofficial internship projects inspired by work at Ericsson.
+My unofficial internship at Ericsson.
 
 ## Projects
 

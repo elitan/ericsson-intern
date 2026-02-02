@@ -15,16 +15,15 @@ def hierarchical_search(channels):
     wide_gains = np.abs(channels @ wide_cb.conj().T) ** 2
     best_wide = np.argmax(wide_gains, axis=1)
 
-    n = len(channels)
-    best_narrow = np.zeros(n, dtype=int)
     ratio = N_NARROW_BEAMS // N_WIDE_BEAMS
+    narrow_gains = np.abs(channels @ narrow_cb.conj().T) ** 2
 
-    for i in range(n):
-        start = best_wide[i] * ratio
-        end = start + ratio
-        candidates = np.arange(start, min(end, N_NARROW_BEAMS))
-        candidate_gains = np.abs(narrow_cb[candidates].conj() @ channels[i]) ** 2
-        best_narrow[i] = candidates[np.argmax(candidate_gains)]
+    starts = best_wide * ratio
+    candidate_indices = starts[:, None] + np.arange(ratio)[None, :]
+    candidate_indices = np.clip(candidate_indices, 0, N_NARROW_BEAMS - 1)
+
+    candidate_gains = np.take_along_axis(narrow_gains, candidate_indices, axis=1)
+    best_narrow = candidate_indices[np.arange(len(channels)), np.argmax(candidate_gains, axis=1)]
 
     overhead = N_WIDE_BEAMS + ratio
     return best_narrow, overhead

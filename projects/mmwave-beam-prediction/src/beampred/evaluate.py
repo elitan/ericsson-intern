@@ -23,6 +23,13 @@ def top_k_accuracy(logits, labels, k):
     return correct.mean().item()
 
 
+def spectral_efficiency_batch(channels, beam_indices, codebook, snr_linear):
+    norms = np.linalg.norm(channels, axis=1, keepdims=True)
+    h_norm = channels / np.maximum(norms, 1e-30) * np.sqrt(channels.shape[1])
+    gains = np.abs(np.sum(codebook[beam_indices].conj() * h_norm, axis=1)) ** 2
+    return np.log2(1 + snr_linear * gains)
+
+
 def spectral_efficiency(channel, beam_idx, codebook, snr_linear):
     h_norm = channel / (np.linalg.norm(channel) + 1e-30) * np.sqrt(len(channel))
     gain = np.abs(codebook[beam_idx].conj() @ h_norm) ** 2
@@ -74,32 +81,27 @@ def _build_results(predicted, labels_np, test_labels_np, logits, labels,
         "confusion": np.zeros((N_NARROW_BEAMS, N_NARROW_BEAMS), dtype=int),
     }
 
-    for i in range(len(labels_np)):
-        results["confusion"][labels_np[i], predicted[i]] += 1
+    np.add.at(results["confusion"], (labels_np, predicted), 1)
 
     overhead_exhaustive = N_NARROW_BEAMS
+    frame_slots = 100
+    data_frac_exhaust = (frame_slots - overhead_exhaustive) / frame_slots
+    data_frac_method = (frame_slots - overhead) / frame_slots
 
     for snr_db in SNR_VALUES_DB:
         snr_lin = from_db(snr_db)
-        se_exhaustive = np.zeros(len(test_channels))
-        se_method = np.zeros(len(test_channels))
+        se_exhaustive = spectral_efficiency_batch(test_channels, test_labels_np, narrow_cb, snr_lin)
+        se_method = spectral_efficiency_batch(test_channels, predicted, narrow_cb, snr_lin)
 
-        for i in range(len(test_channels)):
-            se_exhaustive[i] = spectral_efficiency(test_channels[i], test_labels_np[i], narrow_cb, snr_lin)
-            se_method[i] = spectral_efficiency(test_channels[i], predicted[i], narrow_cb, snr_lin)
-
-        frame_slots = 100
-        data_slots_exhaust = frame_slots - overhead_exhaustive
-        data_slots_method = frame_slots - overhead
-        tp_exhaust = np.mean(se_exhaustive) * (data_slots_exhaust / frame_slots)
-        tp_method = np.mean(se_method) * (data_slots_method / frame_slots)
+        mean_se_exh = np.mean(se_exhaustive)
+        mean_se_mtd = np.mean(se_method)
 
         results["snr_results"][snr_db] = {
-            "se_exhaustive": np.mean(se_exhaustive),
-            "se_method": np.mean(se_method),
-            "se_ratio": np.mean(se_method) / np.mean(se_exhaustive) if np.mean(se_exhaustive) > 0 else 0,
-            "tp_exhaustive": tp_exhaust,
-            "tp_method": tp_method,
+            "se_exhaustive": mean_se_exh,
+            "se_method": mean_se_mtd,
+            "se_ratio": mean_se_mtd / mean_se_exh if mean_se_exh > 0 else 0,
+            "tp_exhaustive": mean_se_exh * data_frac_exhaust,
+            "tp_method": mean_se_mtd * data_frac_method,
         }
 
     bin_edges = np.linspace(D_MIN, D_MAX, DISTANCE_BINS + 1)

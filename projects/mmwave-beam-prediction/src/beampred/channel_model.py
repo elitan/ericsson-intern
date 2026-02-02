@@ -3,7 +3,6 @@ from beampred.config import (
     N_ANTENNAS, N_CLUSTERS, N_RAYS_PER_CLUSTER,
     ANGULAR_SPREAD_DEG, D_MIN, D_MAX, FREQ
 )
-from beampred.utils import array_response_vector
 
 
 def generate_channels(n_samples, seed=42):

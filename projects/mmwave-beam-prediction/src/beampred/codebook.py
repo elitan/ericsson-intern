@@ -3,11 +3,10 @@ from beampred.config import N_ANTENNAS, N_NARROW_BEAMS, N_WIDE_BEAMS
 
 
 def generate_dft_codebook(n_antennas, n_beams):
-    codebook = np.zeros((n_beams, n_antennas), dtype=complex)
-    for i in range(n_beams):
-        phase = 2 * np.pi * np.arange(n_antennas) * i / n_beams
-        codebook[i] = np.exp(1j * phase) / np.sqrt(n_antennas)
-    return codebook
+    i = np.arange(n_beams)[:, None]
+    n = np.arange(n_antennas)[None, :]
+    phase = 2 * np.pi * n * i / n_beams
+    return np.exp(1j * phase) / np.sqrt(n_antennas)
 
 
 def get_narrow_codebook():

@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-import math
 from beampred.config import N_WIDE_BEAMS, N_NARROW_BEAMS, HIDDEN_DIMS, DROPOUT
 
 

@@ -4,7 +4,7 @@ import torch.nn as nn
 import numpy as np
 from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR
 
-from beampred.config import LR, EPOCHS, EARLY_STOP_PATIENCE, LABEL_SMOOTHING, N_NARROW_BEAMS
+from beampred.config import LR, EPOCHS, EARLY_STOP_PATIENCE, N_NARROW_BEAMS
 from beampred.beam_predictor import BeamPredictor
 
 WARMUP_EPOCHS = 5

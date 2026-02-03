@@ -379,11 +379,11 @@ Use for:
 
 ---
 
-## Phase 5: Critical Improvements 🔄 IN PROGRESS
+## Phase 5: Critical Improvements ✅ COMPLETE
 
-**Initial Rating: 5.5/10** → **Current Rating: 7.5/10**
+**Initial Rating: 5.5/10** → **Final Rating: 7.5/10**
 
-Improvements completed. Paper now ready for workshop/conference submission.
+All improvements completed. Paper ready for workshop/conference submission.
 
 ### Must-Fix (for acceptance)
 
@@ -453,6 +453,67 @@ RAPS achieves higher coverage but with much larger sets:
 3. Enables 61-85% measurement savings
 
 GCP removed from main results - it doesn't improve coverage and sometimes hurts.
+
+---
+
+## Phase 6: Paper Feedback Addressed ✅ COMPLETE
+
+**Date:** 2026-02-03
+
+### Feedback Received
+
+1. Explain more what the model input is
+2. Expand paper to 6 pages (was 3)
+3. Add figure showing UE movement in scenario
+4. Add mobility KPIs (ping-pong handovers)
+5. Add 3dB threshold baseline comparison
+6. Translate AIML KPIs to system level results
+
+### Changes Made
+
+| Task | File | Status |
+|------|------|--------|
+| 3dB baseline | `src/handover/baseline.py` | ✅ Created |
+| Ping-pong tracking | `baseline.py` | ✅ Added |
+| UE mobility figure | `figures/ue_mobility.pdf` | ✅ Generated |
+| New experiment script | `run_paper_experiments_v4.py` | ✅ Created |
+| Expanded paper | `report.tex` (6 pages) | ✅ Complete |
+
+### Key Results (v4)
+
+**3dB Baseline vs ML+CP:**
+
+| Scenario | 3dB Baseline | ML Top-1 | ML+CP |
+|----------|--------------|----------|-------|
+| Easy     | 79% | 80% | **90%** |
+| Medium   | 62% | 65% | **89%** |
+| Hard     | 45% | 51% | **90%** |
+
+**Ping-Pong Reduction (NEW FINDING!):**
+
+| Scenario | 3dB | ML Top-1 | CP Adaptive | Reduction |
+|----------|-----|----------|-------------|-----------|
+| Easy     | 0.30 | 0.40 | **0.19** | -37% |
+| Medium   | 0.28 | 0.36 | **0.12** | -57% |
+| Hard     | 0.21 | 0.31 | **0.13** | -40% |
+
+**Key insight:** ML Top-1 *increases* ping-pong (always switches to prediction). CP Adaptive *reduces* it by staying on serving cell when it's in the prediction set.
+
+**New Content Added:**
+- Model input features: $\mathbf{x} = [\text{RSRP}_1...\text{RSRP}_K, \mathbf{e}_{c_t}, v] \in \mathbb{R}^{2K+1}$
+- UE mobility figure (Fig. 1)
+- AIML→System KPI mapping table
+- 3dB baseline comparison
+- Ping-pong analysis with policy simulation
+- Sensitivity analysis (α, K_max)
+- Expanded Discussion and Conclusion
+
+**Paper now 6 pages with:**
+- 4 figures
+- 5 tables
+- Detailed model description
+- Complete baseline comparisons
+- Ping-pong reduction results
 
 ---
 

@@ -29,7 +29,7 @@
 \maketitle
 
 \begin{abstract}
-ML-based mmWave beam prediction lacks reliability guarantees. We evaluate conformal prediction (CP) on two DeepMIMO scenarios at 28~GHz, finding: (1)~CP benefit is scenario-dependent---set size 1.19 on boston5g\_28 (83.5\% accuracy) vs.\ 1.00 on O1\_28 (92.2\%); (2)~standard CP exhibits conditional coverage gaps (79\% at short distances vs.\ 90\% target); (3)~group-conditional CP closes this gap with modest overhead (set size 1.29). Results show CP value depends on base model accuracy and channel complexity.
+ML-based mmWave beam prediction lacks reliability guarantees. Conformal prediction (CP) addresses this by outputting a \emph{prediction set}---a set of candidate beams guaranteed to contain the optimal beam with high probability. We evaluate CP on two DeepMIMO scenarios at 28~GHz. Key findings: (1)~CP's benefit is scenario-dependent---on boston5g\_28 (83.5\% base accuracy), CP outputs 1.19 beams on average, adapting to uncertainty; on O1\_28 (92.2\% accuracy), CP outputs exactly 1 beam, providing no additional value since the model is already confident. (2)~Standard CP exhibits conditional coverage gaps: short-distance users receive only 79\% coverage despite a 90\% target. (3)~Group-conditional CP closes this gap (1.29 beams average). Results show CP's usefulness depends on base model accuracy and channel complexity.
 \end{abstract}
 
 \section{Introduction}

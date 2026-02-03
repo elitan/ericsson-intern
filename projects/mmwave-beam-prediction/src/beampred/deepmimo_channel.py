@@ -1,7 +1,7 @@
 import numpy as np
 
 try:
-    import DeepMIMO
+    import deepmimo
     HAS_DEEPMIMO = True
 except ImportError:
     HAS_DEEPMIMO = False
@@ -9,53 +9,53 @@ except ImportError:
 from beampred.config import N_ANTENNAS
 
 
-def load_deepmimo_channels(scenario="O1_28", n_samples=70000):
+def load_deepmimo_channels(scenario="boston5g_28", n_samples=70000, scenario_folder=None):
     if not HAS_DEEPMIMO:
-        raise ImportError("DeepMIMO not installed. pip install DeepMIMO")
+        raise ImportError("DeepMIMO not installed. pip install DeepMIMO>=4.0.0b9")
 
-    params = DeepMIMO.default_params()
-    params["scenario"] = scenario
-    params["active_BS"] = np.array([1])
-    params["user_row_first"] = 1
-    params["user_row_last"] = 502
-    params["bs_antenna"]["shape"] = np.array([N_ANTENNAS, 1, 1])
-    params["ue_antenna"]["shape"] = np.array([1, 1, 1])
-    params["num_paths"] = 10
-    params["OFDM"]["subcarriers"] = 1
-    params["OFDM"]["bandwidth"] = 0.1
+    if scenario_folder:
+        deepmimo.config.set('scenarios_folder', scenario_folder)
 
-    dataset = DeepMIMO.generate_data(params)
+    dataset = deepmimo.load(scenario, max_paths=10)
+    ds = dataset.datasets[0]
 
-    bs = dataset[0]
-    n_users = bs["user"]["channel"].shape[0]
-    channels_raw = bs["user"]["channel"][:, 0, :, 0].squeeze()
+    n_ue = min(ds.n_ue, n_samples)
+    channels = ds.channel[:n_ue, 0, :, 0]
+    aoa_az = ds.aoa_az[:n_ue]
+    distances = ds.distance[:n_ue]
 
-    if len(channels_raw) < n_samples:
-        print(f"  DeepMIMO: only {len(channels_raw)} users available, requested {n_samples}")
-        n_samples = len(channels_raw)
+    h_array = np.zeros((n_ue, N_ANTENNAS), dtype=complex)
+    for i in range(n_ue):
+        for p in range(channels.shape[1]):
+            if np.isnan(aoa_az[i, p]):
+                continue
+            theta = np.deg2rad(aoa_az[i, p])
+            steering = np.exp(1j * np.pi * np.arange(N_ANTENNAS) * np.sin(theta))
+            h_array[i] += channels[i, p] * steering / np.sqrt(N_ANTENNAS)
 
-    channels = channels_raw[:n_samples]
+    valid_mask = np.linalg.norm(h_array, axis=1) > 1e-10
+    h_array = h_array[valid_mask]
+    distances = distances[valid_mask]
 
-    norms = np.linalg.norm(channels, axis=1, keepdims=True)
+    if len(h_array) < n_samples:
+        print(f"  DeepMIMO: only {len(h_array)} valid channels, requested {n_samples}")
+
+    norms = np.linalg.norm(h_array, axis=1, keepdims=True)
     norms = np.maximum(norms, 1e-10)
-    channels = channels / norms * np.sqrt(N_ANTENNAS)
+    h_array = h_array / norms * np.sqrt(N_ANTENNAS)
 
-    if "user" in bs and "location" in bs["user"]:
-        locs = bs["user"]["location"][:n_samples]
-        bs_loc = bs["location"]
-        distances = np.linalg.norm(locs - bs_loc, axis=1)
+    return h_array[:n_samples], distances[:n_samples]
+
+
+def try_load_deepmimo(n_samples=70000, scenario=None, scenario_folder=None):
+    if scenario is not None:
+        scenarios = [scenario]
     else:
-        distances = np.random.uniform(10, 200, n_samples)
-
-    return channels, distances
-
-
-def try_load_deepmimo(n_samples=70000):
-    scenarios = ["O1_28", "O1_28B", "I3_28", "Boston5G_28"]
+        scenarios = ["boston5g_28", "O1_28"]
     for sc in scenarios:
         try:
             print(f"  Trying DeepMIMO scenario: {sc}")
-            channels, distances = load_deepmimo_channels(sc, n_samples)
+            channels, distances = load_deepmimo_channels(sc, n_samples, scenario_folder)
             print(f"  Loaded {len(channels)} channels from {sc}")
             return channels, distances, sc
         except Exception as e:

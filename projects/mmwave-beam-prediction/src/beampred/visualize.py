@@ -311,9 +311,61 @@ def plot_prediction_set_sizes(sizes, sizes_beam_aware=None):
     save_fig(fig, "prediction-set-sizes.png")
 
 
+def plot_group_conditional_comparison(std_bin_cov, group_bin_cov, bin_labels, alpha=0.1):
+    setup_style()
+    fig, ax = plt.subplots(figsize=(8, 5))
+
+    x = np.arange(len(bin_labels))
+    width = 0.35
+
+    ax.bar(x - width / 2, std_bin_cov, width, label="Standard CP", color="C0",
+           edgecolor="black", linewidth=0.5)
+    ax.bar(x + width / 2, group_bin_cov, width, label="Group-conditional CP", color="C2",
+           edgecolor="black", linewidth=0.5)
+
+    ax.axhline(1 - alpha, color="red", linestyle="--", linewidth=1.5,
+               label=f"Target ({1 - alpha:.0%})")
+
+    for i, (s, g) in enumerate(zip(std_bin_cov, group_bin_cov)):
+        ax.text(i - width / 2, s + 0.005, f"{s:.3f}", ha="center", va="bottom", fontsize=8)
+        ax.text(i + width / 2, g + 0.005, f"{g:.3f}", ha="center", va="bottom", fontsize=8)
+
+    ax.set_xticks(x)
+    ax.set_xticklabels([f"{l} m" for l in bin_labels])
+    ax.set_xlabel("Distance bin")
+    ax.set_ylabel("Coverage")
+    ax.set_title("Conditional Coverage: Standard vs Group-Conditional CP")
+    ax.legend()
+    ax.set_ylim(0.7, 1.02)
+    save_fig(fig, "group-conditional-comparison.png")
+
+
+def plot_conditional_coverage(std_bin_cov, bin_labels, alpha=0.1):
+    setup_style()
+    fig, ax = plt.subplots(figsize=(8, 5))
+
+    x = np.arange(len(bin_labels))
+    ax.bar(x, std_bin_cov, color="C0", edgecolor="black", linewidth=0.5)
+    ax.axhline(1 - alpha, color="red", linestyle="--", linewidth=1.5,
+               label=f"Target ({1 - alpha:.0%})")
+
+    for i, v in enumerate(std_bin_cov):
+        ax.text(i, v + 0.005, f"{v:.3f}", ha="center", va="bottom", fontsize=9)
+
+    ax.set_xticks(x)
+    ax.set_xticklabels([f"{l} m" for l in bin_labels])
+    ax.set_xlabel("Distance bin")
+    ax.set_ylabel("Coverage")
+    ax.set_title("Conditional Coverage Gap (Standard CP)")
+    ax.legend()
+    ax.set_ylim(0.7, 1.02)
+    save_fig(fig, "conditional-coverage.png")
+
+
 def generate_all_figures(all_results, mlp_results=None, error_results=None,
                          sweep_results=None, set_sizes_arr=None,
-                         std_results=None, set_sizes_beam_aware=None):
+                         std_results=None, set_sizes_beam_aware=None,
+                         std_bin_cov=None, group_bin_cov=None, bin_labels=None):
     print("Generating figures...")
     plot_beam_patterns()
     plot_topk_vs_snr(all_results, std_results=std_results)
@@ -329,4 +381,8 @@ def generate_all_figures(all_results, mlp_results=None, error_results=None,
         plot_adaptive_tradeoff(sweep_results)
     if set_sizes_arr is not None:
         plot_prediction_set_sizes(set_sizes_arr, sizes_beam_aware=set_sizes_beam_aware)
+    if std_bin_cov is not None and bin_labels is not None:
+        plot_conditional_coverage(std_bin_cov, bin_labels)
+        if group_bin_cov is not None:
+            plot_group_conditional_comparison(std_bin_cov, group_bin_cov, bin_labels)
     print("All figures saved.")

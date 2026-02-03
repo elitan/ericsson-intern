@@ -1,5 +1,1 @@
-- always use `uv` for package management. never pip.
 - run simulation: `uv run python run_simulation.py`
-- python source lives in src/beampred/
-- use underscore_case for python files
-- report is in report.tex (LaTeX, IEEE format)

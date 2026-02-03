@@ -46,9 +46,10 @@ def standardize(train_feat, *other_feats):
     return tuple(result) + (mean, std)
 
 
-def generate_or_load_data(seed=SEED, use_cache=True, source="synthetic"):
+def generate_or_load_data(seed=SEED, use_cache=True, source="synthetic", scenario=None):
+    suffix = f"{source}_{scenario}" if scenario else source
     os.makedirs(DATA_DIR, exist_ok=True)
-    cache_path = os.path.join(DATA_DIR, f"dataset_{source}_seed{seed}.npz")
+    cache_path = os.path.join(DATA_DIR, f"dataset_{suffix}_seed{seed}.npz")
 
     if use_cache and os.path.exists(cache_path):
         data = np.load(cache_path)
@@ -63,7 +64,7 @@ def generate_or_load_data(seed=SEED, use_cache=True, source="synthetic"):
     n_total = N_TRAIN + CALIBRATION_SAMPLES + N_VAL + N_TEST
 
     if source == "deepmimo":
-        channels, distances, scenario = deepmimo_channel.try_load_deepmimo(n_total)
+        channels, distances, scenario = deepmimo_channel.try_load_deepmimo(n_total, scenario=scenario)
         if channels is None:
             print("  DeepMIMO failed, falling back to synthetic channels")
             source = "synthetic"
@@ -102,8 +103,8 @@ def generate_or_load_data(seed=SEED, use_cache=True, source="synthetic"):
     return result
 
 
-def get_dataloaders(seed=SEED, use_cache=True, source="synthetic"):
-    data = generate_or_load_data(seed, use_cache, source)
+def get_dataloaders(seed=SEED, use_cache=True, source="synthetic", scenario=None):
+    data = generate_or_load_data(seed, use_cache, source, scenario=scenario)
     train_feat, train_labels, train_dist = data[0], data[1], data[2]
     cal_feat, cal_labels, cal_dist = data[3], data[4], data[5]
     val_feat, val_labels, val_dist = data[6], data[7], data[8]
@@ -125,4 +126,4 @@ def get_dataloaders(seed=SEED, use_cache=True, source="synthetic"):
     test_loader = DataLoader(test_ds, batch_size=BATCH_SIZE, shuffle=False)
 
     return (train_loader, cal_loader, val_loader, test_loader,
-            test_channels, test_dist, test_labels, mean, std)
+            test_channels, test_dist, test_labels, mean, std, cal_dist)

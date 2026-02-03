@@ -94,6 +94,42 @@ def predict_sets_beam_aware(model, data_loader, threshold, device="cpu"):
     return prediction_sets
 
 
+def calibrate_group(scores, cal_distances, alpha=0.1, n_bins=4):
+    bin_edges = np.quantile(cal_distances, np.linspace(0, 1, n_bins + 1))
+    bin_edges[0] -= 1e-6
+    bin_edges[-1] += 1e-6
+
+    thresholds = np.zeros(n_bins)
+    for b in range(n_bins):
+        mask = (cal_distances > bin_edges[b]) & (cal_distances <= bin_edges[b + 1])
+        bin_scores = scores[mask]
+        n = len(bin_scores)
+        if n == 0:
+            thresholds[b] = 1.0
+            continue
+        q = np.ceil((n + 1) * (1 - alpha)) / n
+        thresholds[b] = np.quantile(bin_scores, min(q, 1.0))
+
+    return thresholds, bin_edges
+
+
+def predict_sets_group(probs, test_distances, thresholds, bin_edges):
+    n_bins = len(thresholds)
+    prediction_sets = []
+
+    for i in range(len(probs)):
+        b = np.searchsorted(bin_edges[1:], test_distances[i], side="left")
+        b = min(b, n_bins - 1)
+        thresh = thresholds[b]
+        above = probs[i] >= 1.0 - thresh
+        beam_set = np.where(above)[0]
+        if len(beam_set) == 0:
+            beam_set = np.array([np.argmax(probs[i])])
+        prediction_sets.append(beam_set)
+
+    return prediction_sets
+
+
 def set_sizes(prediction_sets):
     return np.array([len(s) for s in prediction_sets])
 

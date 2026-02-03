@@ -11,7 +11,8 @@ from beampred.train import train_model
 from beampred.baselines import hierarchical_search, train_logistic_regression, predict_logistic, BeamCNN
 from beampred.beam_predictor import BeamPredictor, ResNetMLP, BeamTransformer
 from beampred.conformal import (calibrate, predict_sets, set_sizes, coverage,
-                                 calibrate_beam_aware, predict_sets_beam_aware)
+                                 calibrate_beam_aware, predict_sets_beam_aware,
+                                 calibrate_group, predict_sets_group)
 from beampred.complexity import analyze_complexity, print_complexity_table
 from beampred.visualize import generate_all_figures
 from beampred.evaluate import compute_metrics, compute_metrics_from_predictions, print_summary
@@ -23,7 +24,7 @@ from beampred.export_results import export_latex_tables, format_results_summary
 METHOD_ORDER = ["MLP", "ResNet-MLP", "CNN", "Transformer", "LogReg", "Hierarchical"]
 
 
-def run_single_seed(seed, source, device, use_cache, t_total):
+def run_single_seed(seed, source, device, use_cache, t_total, scenario=None):
     config.SEED = seed
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -32,46 +33,46 @@ def run_single_seed(seed, source, device, use_cache, t_total):
         print(f"  [{label} done in {time.time() - t0:.1f}s, total {time.time() - t_total:.1f}s]")
 
     t0 = time.time()
-    print(f"\n[1/13] Loading dataset (seed={seed})...")
+    print(f"\n[1/14] Loading dataset (seed={seed})...")
     src = source
     try:
-        loaders = get_dataloaders(seed=seed, use_cache=use_cache, source=src)
+        loaders = get_dataloaders(seed=seed, use_cache=use_cache, source=src, scenario=scenario)
     except Exception as e:
         print(f"  {src} failed ({e}), falling back to synthetic")
         src = "synthetic"
         loaders = get_dataloaders(seed=seed, use_cache=use_cache, source=src)
 
-    train_loader, cal_loader, val_loader, test_loader, test_channels, test_dist, test_labels, mean, std = loaders
+    train_loader, cal_loader, val_loader, test_loader, test_channels, test_dist, test_labels, mean, std, cal_dist = loaders
     print(f"  Source: {src}")
     print(f"  Train: {len(train_loader.dataset)}, Cal: {len(cal_loader.dataset)}, "
           f"Val: {len(val_loader.dataset)}, Test: {len(test_loader.dataset)}")
     step_time("1/13", t0)
 
     t0 = time.time()
-    print("\n[2/13] Training MLP...")
+    print("\n[2/14] Training MLP...")
     mlp_model = train_model(train_loader, val_loader, device=device)
     step_time("2/13", t0)
 
     t0 = time.time()
-    print("\n[3/13] Training ResNet-MLP...")
+    print("\n[3/14] Training ResNet-MLP...")
     resnet_model = ResNetMLP()
     resnet_model = train_model(train_loader, val_loader, device=device, model=resnet_model)
     step_time("3/13", t0)
 
     t0 = time.time()
-    print("\n[4/13] Training CNN...")
+    print("\n[4/14] Training CNN...")
     cnn_model = BeamCNN()
     cnn_model = train_model(train_loader, val_loader, device=device, model=cnn_model)
     step_time("4/13", t0)
 
     t0 = time.time()
-    print("\n[5/13] Training Transformer...")
+    print("\n[5/14] Training Transformer...")
     transformer_model = BeamTransformer()
     transformer_model = train_model(train_loader, val_loader, device=device, model=transformer_model)
     step_time("5/13", t0)
 
     t0 = time.time()
-    print("\n[6/13] Training logistic regression...")
+    print("\n[6/14] Training logistic regression...")
     train_feat_np = np.vstack([b[0].numpy() for b in train_loader])
     train_labels_np = np.concatenate([b[1].numpy() for b in train_loader])
     test_feat_np = np.vstack([b[0].numpy() for b in test_loader])
@@ -83,13 +84,13 @@ def run_single_seed(seed, source, device, use_cache, t_total):
     step_time("6/13", t0)
 
     t0 = time.time()
-    print("\n[7/13] Running hierarchical beam search...")
+    print("\n[7/14] Running hierarchical beam search...")
     hier_predicted, hier_overhead = hierarchical_search(test_channels)
     print(f"  Hierarchical top-1: {np.mean(hier_predicted == np.array(test_labels)):.4f}, overhead: {hier_overhead}")
     step_time("7/13", t0)
 
     t0 = time.time()
-    print("\n[8/13] Evaluating all methods...")
+    print("\n[8/14] Evaluating all methods...")
     all_results = []
 
     mlp_results = compute_metrics(mlp_model, test_loader, test_channels, test_dist,
@@ -131,7 +132,7 @@ def run_single_seed(seed, source, device, use_cache, t_total):
     best_model = model_map[best_name]
 
     t0 = time.time()
-    print(f"\n[9/13] Conformal prediction (standard) on {best_name}...")
+    print(f"\n[9/14] Conformal prediction (standard) on {best_name}...")
     threshold, cal_scores = calibrate(best_model, cal_loader, alpha=CONFORMAL_ALPHA, device=device)
     print(f"  Conformal threshold: {threshold:.4f}")
     prediction_sets = predict_sets(best_model, test_loader, threshold, device=device)
@@ -148,18 +149,55 @@ def run_single_seed(seed, source, device, use_cache, t_total):
     ba_cov = coverage(ba_prediction_sets, test_labels)
     print(f"  Beam-aware coverage: {ba_cov:.4f}")
     print(f"  Beam-aware mean set size: {ba_sizes.mean():.2f}")
-    step_time("9/13", t0)
+    step_time("9/14", t0)
 
     t0 = time.time()
-    print("\n[10/13] Adaptive fallback...")
+    print(f"\n[10/14] Group-conditional CP on {best_name}...")
+    best_model.eval()
+    all_probs = []
+    with torch.no_grad():
+        for features, labels in test_loader:
+            logits = best_model(features.to(device))
+            all_probs.append(torch.softmax(logits, dim=1).cpu().numpy())
+    test_probs = np.concatenate(all_probs)
+
+    group_thresholds, group_bin_edges = calibrate_group(
+        cal_scores, cal_dist, alpha=CONFORMAL_ALPHA, n_bins=config.DISTANCE_BINS)
+    group_prediction_sets = predict_sets_group(
+        test_probs, test_dist, group_thresholds, group_bin_edges)
+    group_sizes = set_sizes(group_prediction_sets)
+    group_cov = coverage(group_prediction_sets, test_labels)
+    print(f"  Group-CP coverage: {group_cov:.4f}")
+    print(f"  Group-CP mean set size: {group_sizes.mean():.2f}")
+
+    n_bins = len(group_thresholds)
+    std_bin_cov = []
+    group_bin_cov = []
+    bin_labels_list = []
+    for b in range(n_bins):
+        mask = (test_dist > group_bin_edges[b]) & (test_dist <= group_bin_edges[b + 1])
+        if mask.sum() == 0:
+            continue
+        bin_true = np.array(test_labels)[mask]
+        std_bin_c = coverage([prediction_sets[i] for i, m in enumerate(mask) if m], bin_true)
+        grp_bin_c = coverage([group_prediction_sets[i] for i, m in enumerate(mask) if m], bin_true)
+        std_bin_cov.append(std_bin_c)
+        group_bin_cov.append(grp_bin_c)
+        bin_labels_list.append(f"{group_bin_edges[b]:.0f}-{group_bin_edges[b+1]:.0f}")
+        print(f"  Bin [{group_bin_edges[b]:.0f}-{group_bin_edges[b+1]:.0f}]: "
+              f"std={std_bin_c:.3f}, group={grp_bin_c:.3f}")
+    step_time("10/14", t0)
+
+    t0 = time.time()
+    print("\n[11/14] Adaptive fallback...")
     sweep_results = sweep_thresholds(prediction_sets, np.array(test_labels), test_channels)
     for sr in sweep_results:
         print(f"  Threshold={sr['threshold']:>2d}: acc={sr['accuracy']:.4f}, "
               f"ML={sr['ml_fraction']:.3f}, overhead={sr['avg_overhead']:.1f}")
-    step_time("10/13", t0)
+    step_time("11/14", t0)
 
     t0 = time.time()
-    print("\n[11/13] Error analysis...")
+    print("\n[12/14] Error analysis...")
     best_results = nn_results[best_idx]
     error_results = run_error_analysis(best_results["predicted"], best_results["labels"], test_channels)
     print(f"  Cost-weighted score: {error_results['cost_weighted_score']:.4f}")
@@ -168,10 +206,10 @@ def run_single_seed(seed, source, device, use_cache, t_total):
     for k in range(min(5, len(loss))):
         if counts[k] > 0:
             print(f"  Off-by-{k+1}: {loss[k]:.2f} dB loss (n={counts[k]})")
-    step_time("11/13", t0)
+    step_time("12/14", t0)
 
     t0 = time.time()
-    print("\n[12/13] Complexity analysis...")
+    print("\n[13/14] Complexity analysis...")
     models_dict = {
         "MLP": mlp_model,
         "ResNet-MLP": resnet_model,
@@ -180,7 +218,7 @@ def run_single_seed(seed, source, device, use_cache, t_total):
     }
     complexity_results = analyze_complexity(models_dict)
     print_complexity_table(complexity_results)
-    step_time("12/13", t0)
+    step_time("13/14", t0)
 
     return {
         "all_results": all_results,
@@ -192,6 +230,12 @@ def run_single_seed(seed, source, device, use_cache, t_total):
         "coverage": cov,
         "ba_coverage": ba_cov,
         "complexity": complexity_results,
+        "group_sizes": group_sizes,
+        "group_coverage": group_cov,
+        "std_bin_cov": std_bin_cov,
+        "group_bin_cov": group_bin_cov,
+        "bin_labels": bin_labels_list,
+        "test_probs": test_probs,
     }
 
 
@@ -251,6 +295,8 @@ def main():
     parser.add_argument("--epochs", type=int, default=None)
     parser.add_argument("--no-cache", action="store_true")
     parser.add_argument("--source", type=str, default="deepmimo", choices=["deepmimo", "synthetic"])
+    parser.add_argument("--scenario", type=str, default=None,
+                        help="DeepMIMO scenario name (e.g. boston5g_28, O1_28)")
     args = parser.parse_args()
 
     seeds = [int(s) for s in args.seeds.split(",")]
@@ -268,7 +314,8 @@ def main():
         print(f"\n{'='*60}")
         print(f"  SEED {seed}")
         print(f"{'='*60}")
-        out = run_single_seed(seed, args.source, device, not args.no_cache, t_total)
+        out = run_single_seed(seed, args.source, device, not args.no_cache, t_total,
+                             scenario=args.scenario)
         seed_outputs.append(out)
 
     mean_results, std_results = aggregate_seeds(seed_outputs)
@@ -295,7 +342,12 @@ def main():
     print(f"Mean set size (standard): {np.mean(size_vals):.2f} ± {np.std(size_vals):.2f}")
     print(f"Mean set size (beam-aware): {np.mean(ba_size_vals):.2f} ± {np.std(ba_size_vals):.2f}")
 
-    print("\n[13/13] Generating figures...")
+    group_cov_vals = [so["group_coverage"] for so in seed_outputs]
+    group_size_vals = [so["group_sizes"].mean() for so in seed_outputs]
+    print(f"Conformal coverage (group-cond): {np.mean(group_cov_vals):.4f} ± {np.std(group_cov_vals):.4f}")
+    print(f"Mean set size (group-cond): {np.mean(group_size_vals):.2f} ± {np.std(group_size_vals):.2f}")
+
+    print("\n[14/14] Generating figures...")
     t0 = time.time()
 
     generate_all_figures(
@@ -306,6 +358,9 @@ def main():
         set_sizes_arr=last["sizes"],
         std_results=std_results if len(seeds) > 1 else None,
         set_sizes_beam_aware=last["ba_sizes"],
+        std_bin_cov=last["std_bin_cov"],
+        group_bin_cov=last["group_bin_cov"],
+        bin_labels=last["bin_labels"],
     )
     print(f"  [13/13 done in {time.time() - t0:.1f}s]")
 

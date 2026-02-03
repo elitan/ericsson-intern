@@ -1,0 +1,25 @@
+.env
+__pycache__/
+*.pyc
+.venv/
+data/
+figures/
+figures_*/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+deepmimo_scenarios/
+.DS_Store
+
+# LaTeX build files
+*.aux
+*.log
+*.out
+*.fdb_latexmk
+*.fls
+*.synctex.gz
+
+# Run logs
+*_results.log
+cloud_run.log

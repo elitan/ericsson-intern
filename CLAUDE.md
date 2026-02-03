@@ -1,1 +1,4 @@
+- always use `uv` for package management. never pip.
+- use underscore_case for python files
+- the report should be in report.tex (LaTeX, IEEE format)
 - author affiliation in reports: `\IEEEauthorblockA{\url{https://github.com/elitan}}`

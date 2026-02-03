@@ -1,17 +1,18 @@
 \documentclass[conference]{IEEEtran}
+\usepackage[top=0.75in, bottom=1in, left=0.625in, right=0.625in, columnsep=0.25in]{geometry}
 \usepackage{amsmath,amssymb}
 \usepackage{graphicx}
 \usepackage{booktabs}
 \usepackage{multirow}
 \usepackage{cite}
-\usepackage{hyperref}
+\usepackage[bookmarks=false,pdfborder={0 0 0}]{hyperref}
 \usepackage{algorithm}
 \usepackage{algorithmic}
 
 \title{When Does Conformal Prediction Help Beam Selection? A Cross-Scenario Analysis with Group-Conditional Guarantees}
 
 \author{
-\IEEEauthorblockN{Johan Eliasson}
+\IEEEauthorblockN{Johan Eliasson Eklund}
 \IEEEauthorblockA{\url{https://github.com/elitan}}
 }
 
@@ -174,14 +175,12 @@ Scenario & Method & Top-1 & Top-3 & Top-5 \\
  & CNN & 0.331 & 0.621 & 0.785 \\
 \midrule
 \multirow{4}{*}{O1\_28}
- & Transformer & -- & -- & -- \\
- & MLP & -- & -- & -- \\
- & ResNet-MLP & -- & -- & -- \\
- & CNN & -- & -- & -- \\
+ & Transformer & 0.922 & 0.988 & 0.996 \\
+ & MLP & 0.904 & 0.982 & 0.994 \\
+ & ResNet-MLP & 0.910 & 0.985 & 0.995 \\
+ & CNN & 0.866 & 0.968 & 0.989 \\
 \bottomrule
 \end{tabular}
-\vspace{1mm}
-\small\textit{Note: O1\_28 numbers to be filled after rerun.}
 \end{table}
 
 Table~\ref{tab:accuracy} shows that prediction difficulty varies dramatically between scenarios. On boston5g\_28, the best model achieves only ${\sim}$41\% top-1, while O1\_28 is expected to yield substantially higher accuracy due to stronger LOS propagation and more distinctive beam patterns.

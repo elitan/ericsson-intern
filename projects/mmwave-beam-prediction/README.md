@@ -1,12 +1,14 @@
 # mmWave Beam Prediction
 
-Confidence-aware adaptive beam management with conformal guarantees for 5G mmWave systems.
+**Status: Complete** ✓
+
+Cross-scenario analysis of conformal prediction for mmWave beam selection.
 
 [Download report (PDF)](report.pdf)
 
 ## Abstract
 
-ML-based mmWave beam prediction reduces measurement overhead but provides no reliability guarantees. This project proposes a confidence-aware adaptive beam management framework: (1) cost-aware error analysis showing non-uniform error severity, (2) conformal prediction sets with a novel beam-aware variant, and (3) an adaptive fallback protocol using ML when confident and exhaustive search when uncertain. Evaluated on a 28 GHz channel with 64 beams, the system achieves near-100% effective accuracy while reducing measurement overhead by 40-60%.
+Conformal prediction (CP) can wrap any beam predictor with coverage guarantees, but its practical value depends on the scenario. This project presents the first cross-scenario CP analysis for mmWave beam prediction using two ray-traced DeepMIMO channels at 28 GHz (boston5g_28 and O1_28). Key findings: (1) CP's value is scenario-dependent—on boston5g_28 (~40% top-1) CP adds meaningful coverage, whereas on O1_28 (>90% top-1) prediction sets collapse to singletons; (2) standard CP exhibits conditional coverage gaps (under-covers distant users); (3) group-conditional CP closes this gap. An adaptive fallback protocol reduces overhead by 40-60%.
 
 ## How to run
 

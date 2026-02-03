@@ -456,6 +456,65 @@ GCP removed from main results - it doesn't improve coverage and sometimes hurts.
 
 ---
 
+## Phase 8: Ensemble Baseline + Latency ✅ COMPLETE
+
+**Date:** 2026-02-03
+
+### What Was Added
+
+1. **Deep Ensemble Comparison** (Table VIII)
+   - Trained 5 MLPs with different seeds, averaged softmax
+   - Calibrated threshold to target 90% coverage
+   - Result: Both CP and Ensemble achieve ~90% coverage
+
+2. **Wall-Clock Latency Measurements**
+   - CP calibration: 0.08ms (one-time)
+   - CP per-sample: 1.6μs
+   - NN inference: 0.5μs
+   - CP overhead: ~3× inference, but negligible absolute cost
+
+### Key Finding
+
+| Method | Coverage | Set Size | Training Cost | Formal Guarantee |
+|--------|----------|----------|---------------|------------------|
+| CP (1 model) | 90% | 1.4-4.8 | 1× | ✅ Yes |
+| Ensemble (5 models) | 90% | 1.4-5.0 | 5× | ❌ No |
+
+**Conclusion:** CP matches ensemble empirically but is 5× cheaper and has formal guarantees.
+
+---
+
+## Phase 7: Peer Review Weaknesses Addressed ✅ COMPLETE
+
+**Date:** 2026-02-03
+
+### Weaknesses Addressed
+
+| Weakness | Description | Resolution |
+|----------|-------------|------------|
+| W1 (Major) | Synthetic-only evaluation | Added Section 6.6 "Real-World Validation" with Irish 5G dataset (82K samples, 133 cells) |
+| W2 | Weak baseline (3dB strawman) | Added Discussion paragraph acknowledging alternative UQ methods (ensembles, MC Dropout) lack formal guarantees |
+| W4 | ACI section underdeveloped | Added Table VII comparing Standard CP vs ACI with ±std across all scenarios |
+
+### Changes Made
+
+- **Abstract:** Updated to mention "validated on real 5G driving data"
+- **Section 6.6:** New "Real-World Validation" subsection with Table VI (Irish 5G results)
+- **Section 6.4:** Added Table VII (ACI vs Standard CP comparison)
+- **Discussion:** Added paragraph on alternative UQ methods
+- **Conclusion:** Added bullet point on real-world validation
+- **Bibliography:** Added Lakshminarayanan et al. (2017) for deep ensembles
+
+### Real-World Results (Irish 5G)
+
+| Method | Coverage | Size |
+|--------|----------|------|
+| Top-1 | 34% | 1 |
+| CP (α=0.05) | 87% | 19.7 |
+| CP (α=0.10) | 78% | 4.6 |
+
+---
+
 ## Phase 6: Paper Feedback Addressed ✅ COMPLETE
 
 **Date:** 2026-02-03

@@ -50,6 +50,10 @@ plt.rcParams.update({
     'legend.fontsize': 9,
     'xtick.labelsize': 10,
     'ytick.labelsize': 10,
+    'pdf.fonttype': 42,
+    'ps.fonttype': 42,
+    'font.family': 'serif',
+    'font.serif': ['Times', 'Times New Roman', 'DejaVu Serif'],
 })
 
 

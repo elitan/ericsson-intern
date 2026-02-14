@@ -202,9 +202,24 @@ Trace-bootstrap on Irish confirms the reliability-cost pattern: ACI vs static gi
 
 \section{Discussion}
 
+\begin{table}[t]
+\caption{Best Method Under Overhead Caps (Synthetic Hard Shifts)}
+\label{tab:overhead-caps}
+\centering
+\begin{tabular}{lcc}
+\toprule
+Overhead Cap & Shadow Shift & Regime Switch \\
+\midrule
+$\le .20$ & Static CP ($.692$) & Weighted CP ($.787$) \\
+$\le .40$ & Static CP ($.692$) & Triggered ACI ($.868$) \\
+$\le .60$ & ACI ($.888$) & ACI ($.892$) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
 \textbf{When to use which method.} Static CP is a strong default in stable conditions. Weighted CP helps moderate covariate shift when target feature support overlaps source. ACI is the robust choice for severe sequential drift, with $\gamma$ tuning used to set reliability-overhead preference. Triggered ACI is a middle point when overhead budget is tight.
 
-\textbf{System implications.} Reliability gains translate to lower RLF proxy but require explicit overhead budgeting. A practical policy can use ACI in high-uncertainty periods and revert to static CP in stable periods.
+\textbf{System implications.} Reliability gains translate to lower RLF proxy but require explicit overhead budgeting. Table~\ref{tab:overhead-caps} gives a simple control policy: low-budget mode prefers static or weighted CP, medium-budget mode uses triggered ACI, and high-budget mode uses full ACI.
 
 \textbf{Limitations.} Synthetic channels still simplify real deployments. Irish traces have limited feature richness versus full network measurement reports. We evaluate offline; online deployment requires streaming integration and control-plane constraints.
 

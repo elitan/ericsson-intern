@@ -3,14 +3,13 @@
 \usepackage{amsmath,amssymb}
 \usepackage{graphicx}
 \usepackage{booktabs}
+\usepackage{multirow}
 \usepackage{cite}
-\usepackage[bookmarks=false,pdfborder={0 0 0}]{hyperref}
+\usepackage[bookmarks=false,pdfborder={0 0 0},hypertexnames=false]{hyperref}
 \usepackage{algorithm}
 \usepackage{algorithmic}
-\usepackage{xcolor}
-\usepackage{multirow}
 
-\title{Conformal Prediction for Reliable Handover in 5G Networks}
+\title{Conformal Prediction for Reliable Handover Under Distribution Shift}
 
 \author{
 \IEEEauthorblockN{Johan Eliasson Eklund}
@@ -21,391 +20,194 @@
 \maketitle
 
 \begin{abstract}
-Machine learning enables predictive handover in 5G networks, but lacks reliability guarantees. We apply conformal prediction (CP) to handover target prediction, providing the first formal coverage guarantees for this problem. Given a target coverage rate (e.g., 90\%), CP outputs a \emph{prediction set} of candidate cells guaranteed to contain the optimal target with high probability. We evaluate on synthetic scenarios with varying difficulty, compare against the traditional 3dB threshold baseline, and validate on real 5G driving data. Key findings: (1)~CP adapts set size to prediction uncertainty---easy scenarios need 1.4 cells on average, hard scenarios need 4.8; (2)~ML+CP achieves 90\% coverage versus 45--79\% for 3dB baseline across scenarios; (3)~CP reduces measurement overhead by 61--85\% versus exhaustive search; (4)~CP reduces ping-pong handovers by 37--57\% through natural hysteresis. We provide explicit mappings between AIML metrics (accuracy, coverage) and system-level KPIs (handover success, RLF rate, ping-pong rate).
+ML handover prediction is accurate in-distribution but fragile under shift. We evaluate conformal prediction (CP) for 5G handover under synthetic and real-world drift. We compare static CP, Adaptive Conformal Inference (ACI), and weighted CP against Top-$k$ and a 3dB hysteresis baseline. On in-distribution synthetic data, static CP reaches $90.3\%$ coverage with set size $2.45$. Under speed and noise shifts, weighted CP recovers coverage to $91.1\%$ in the speed-shift case. Under severe shadow shift, static CP drops to $69.1\%$ while ACI restores $88.8\%$ at larger sets (5.98). In regime-switch streams, ACI stabilizes rolling coverage near the 90\% target. On Irish 5G driving traces with speed-split drift, static CP reaches $76.3\%$ coverage (size 4.58), weighted CP $74.0\%$ (size 4.20), and ACI $87.8\%$ (size 14.9). Results show reliability under shift needs adaptive conformal control, not static calibration alone.
 \end{abstract}
 
 \section{Introduction}
 
-Fifth-generation networks employ dense deployments with advanced beamforming, creating challenges for mobility management~\cite{rappaport2013}. Handover---reassigning a user equipment (UE) session from one cell to another---must balance latency (predictive handover) against reliability (measurement-based handover)~\cite{3gpp38214}.
+Predictive handover reduces latency but can fail badly when radio conditions shift. Traditional 3GPP handover logic relies on hysteresis events~\cite{3gpp38331,3gpp38214}. ML-based handover prediction improves point accuracy but provides no risk control when distribution changes~\cite{lee2020,yajnanarayana2020}. In production, that gap maps directly to radio link failure risk.
 
-Machine learning enables predictive handover by forecasting the optimal target cell from current measurements~\cite{yajnanarayana2020}. However, ML-based predictions lack reliability guarantees: when should the network trust the ML prediction versus falling back to exhaustive measurement?
+Conformal prediction (CP) gives finite-sample marginal coverage guarantees~\cite{vovk2005,angelopoulos2021}. Recent wireless CP work focuses on demodulation, channel tasks, and beam selection~\cite{cohen2022,hegde2024,deng2025}, while handover under distribution shift is still underexplored. This paper targets that gap.
 
-Conformal prediction (CP) addresses this gap by providing distribution-free coverage guarantees~\cite{vovk2005,angelopoulos2021}. Recent work applies CP to beam selection~\cite{hegde2024,deng2025} and channel prediction~\cite{cohen2022}, but \emph{not to handover target prediction}.
-
-\textbf{Contributions.} We provide the first application of CP to handover:
+\textbf{Contributions.}
 \begin{enumerate}
-    \item \textbf{CP for handover prediction.} We formulate handover target prediction as a classification problem and apply split conformal prediction to generate prediction sets with coverage guarantees.
-    \item \textbf{3dB baseline comparison.} We compare against the traditional 3dB hysteresis rule, showing CP achieves 10--45\% higher coverage.
-    \item \textbf{AIML-to-system KPI mapping.} We explicitly map ML metrics (accuracy, coverage, set size) to system-level KPIs (HO success, RLF rate, measurement overhead).
-    \item \textbf{Adaptive Conformal Inference.} We apply ACI~\cite{gibbs2021} to handle temporal dependencies in mobility data.
+    \item We benchmark handover reliability under four synthetic shifts plus a regime-switch stream.
+    \item We compare static CP, ACI~\cite{gibbs2021}, and weighted CP under the same base predictor and KPI mapping.
+    \item We validate on Irish 5G driving traces with source-target speed split.
+    \item We provide budget-aware reproducible runs (local-first, capped overflow policy) and release all generated artifacts.
 \end{enumerate}
 
 \section{Related Work}
 
-\textbf{ML for handover.} Deep learning has been applied to predict handover targets from UE measurements including RSRP, RSRQ, and signal-to-noise ratio~\cite{lee2020}. These approaches train neural networks to classify the optimal target cell based on current radio conditions. Reinforcement learning optimizes handover policies by treating cell selection as a contextual bandit problem~\cite{yajnanarayana2020}, where the state includes UE measurements and the action is the target cell selection. While these methods achieve high accuracy in controlled settings, they provide no guarantees on prediction reliability. A wrong prediction leads directly to radio link failure (RLF), making deployment risky in production networks.
+ML handover methods span supervised and reinforcement-learning policies~\cite{lee2020,yajnanarayana2020}. CP in wireless has shown value for calibration and reliability~\cite{cohen2022}. CP for beam selection shows strong reliability-efficiency tradeoffs~\cite{hegde2024,deng2025}. The missing piece is handover under shift: static calibration can fail as mobility, shadowing, and measurement noise drift over time.
 
-\textbf{Conformal prediction for wireless.} CP provides distribution-free coverage guarantees by outputting prediction sets rather than point predictions. Cohen et al.~\cite{cohen2022} apply CP to demodulation, modulation classification, and channel prediction, demonstrating that CP can calibrate neural network confidence in wireless applications. Hegde et al.~\cite{hegde2024} apply CP to beam selection in distributed MIMO systems, showing that CP enables networks to dynamically adjust beam measurement overhead based on prediction confidence. Deng et al.~\cite{deng2025} extend this to near-field beam selection using conformal risk control. However, neither addresses handover or UE mobility, where temporal dependencies and longer prediction horizons create additional challenges.
+\section{System and Methods}
 
-\textbf{Traditional handover mechanisms.} 3GPP defines measurement-based handover using events like A3 (neighbor becomes offset better than serving)~\cite{3gpp38331}. The A3 event triggers when a neighbor cell's RSRP exceeds the serving cell by a hysteresis margin (typically 3dB) for a specified time-to-trigger. This reactive approach works well in stable conditions but cannot anticipate rapid channel changes during high-speed mobility. Additionally, frequent measurement reporting increases UE power consumption and signaling overhead.
+\subsection{Handover Prediction Setup}
 
-\textbf{Our contribution.} We bridge the gap between ML-based prediction and traditional handover by applying CP to provide formal reliability guarantees. Our approach enables adaptive protocols that use ML predictions when confident (small prediction sets) and fall back to measurement-based handover when uncertain (large sets).
-
-\section{System Model}
-
-\subsection{Network and Mobility Model}
-
-We consider a cellular network with $K$ cells (gNBs) arranged in a hexagonal grid with inter-site distance determined by the cell radius parameter. UEs move along linear trajectories with speeds uniformly sampled from 1--30~m/s, covering walking pedestrians through highway driving scenarios. When a UE reaches the network boundary, it reflects (bounces back) to remain within the coverage area. Fig.~\ref{fig:mobility} illustrates the scenario with example UE trajectories crossing multiple cell boundaries.
-
-\begin{figure}[t]
-\centering
-\includegraphics[width=\columnwidth]{figures/ue_mobility.pdf}
-\caption{UE mobility scenario showing 4$\times$4 gNB grid (Medium scenario). Hexagonal cells with gNBs (triangles). Colored lines show 5 example UE trajectories with start (circle) and end (square) positions. Trajectories cross multiple cell boundaries, triggering handover events.}
-\label{fig:mobility}
-\end{figure}
-
-The received signal strength (RSRP) from gNB $k$ at UE position $\mathbf{p}$ follows the 3GPP Urban Micro path loss model~\cite{3gpp38214}:
+At time $t$, the model predicts future best cell $y_t=\arg\max_k \text{RSRP}_k(t+H)$ using input
 \begin{equation}
-\text{RSRP}_k(\mathbf{p}) = P_{\text{tx}} - \text{PL}(d_k) + X_\sigma
+\mathbf{x}_t=[\text{RSRP}_1,\ldots,\text{RSRP}_K,\mathbf{e}_{c_t},v_t].
 \end{equation}
-where $P_{\text{tx}} = 46$~dBm is transmit power, $\text{PL}(d) = 32.4 + 20\log_{10}(f) + 30\log_{10}(d)$ is path loss at frequency $f$~GHz and distance $d$~m, and $X_\sigma \sim \mathcal{N}(0, \sigma^2)$ is log-normal shadow fading.
+We use an MLP classifier and softmax scores $\hat p(y\mid\mathbf{x})$.
 
-The shadow fading creates cell-specific, position-dependent variations that make handover prediction challenging. Two UEs at the same position may experience different optimal cells due to different shadow fading realizations. Additionally, UE measurements include measurement noise $\sigma_m$, modeling practical receiver imperfections.
+\subsection{Baselines and Conformal Variants}
 
-\subsection{Model Input Features}
+\textbf{3dB baseline:} handover if best neighbor exceeds serving by 3dB.
 
-At time $t$, the predictor receives input vector $\mathbf{x}_t \in \mathbb{R}^{2K+1}$:
+\textbf{Static CP:}
 \begin{equation}
-\mathbf{x}_t = [\underbrace{\text{RSRP}_1, \ldots, \text{RSRP}_K}_{K \text{ measurements}}, \underbrace{\mathbf{e}_{c_t}}_{K \text{ one-hot}}, \underbrace{v}_{\text{speed}}]
+\mathcal{C}(\mathbf{x})=\{y:\hat p(y\mid\mathbf{x})\ge 1-\hat q\},
 \end{equation}
-where $\text{RSRP}_k$ is the (noisy) measurement from cell $k$, $\mathbf{e}_{c_t}$ is the one-hot encoding of current serving cell $c_t$, and $v$ is UE speed. All features are standardized (zero mean, unit variance).
+with $\hat q$ calibrated on held-out source calibration data.
 
-\subsection{Predictor Architecture}
+\textbf{ACI:} online update of effective miscoverage level to track sequential drift~\cite{gibbs2021}.
 
-We use a multilayer perceptron (MLP) with architecture:
-\begin{equation}
-f(\mathbf{x}) = W_3 \cdot \text{ReLU}(W_2 \cdot \text{ReLU}(W_1 \mathbf{x} + b_1) + b_2) + b_3
-\end{equation}
-with hidden dimension 64. The output is a $K$-dimensional vector of class logits, converted to probabilities via softmax: $\hat{p}(y|\mathbf{x}) = \text{softmax}(f(\mathbf{x}))_y$.
+\textbf{Weighted CP:} source calibration scores reweighted by estimated density ratio $w(\mathbf{x})\propto p_T(\mathbf{x})/p_S(\mathbf{x})$ using a source-vs-target logistic discriminator.
 
-\subsection{Handover Prediction Problem}
+\subsection{System KPI Mapping}
 
-The goal is to predict the optimal target cell $y_t \in \{1, \ldots, K\}$ for handover $H$ steps in the future, where $y_t = \arg\max_k \text{RSRP}_k(t + H)$.
-
-\textbf{3dB Baseline.} The traditional approach triggers handover when any neighbor cell exceeds the serving cell by $>$3dB:
-\begin{equation}
-\hat{y}_{\text{3dB}} = \begin{cases}
-\arg\max_k \text{RSRP}_k & \text{if } \max_k \text{RSRP}_k - \text{RSRP}_{c_t} > 3 \\
-c_t & \text{otherwise}
-\end{cases}
-\end{equation}
-
-\textbf{ML Prediction.} Standard prediction selects $\hat{y} = \arg\max_y \hat{p}(y|\mathbf{x}_t)$.
-
-\subsection{Conformal Prediction}
-
-Split CP~\cite{vovk2005} provides distribution-free coverage guarantees without assumptions on the underlying data distribution. Given a calibration set $\{(\mathbf{x}_i, y_i)\}_{i=1}^n$ and a trained classifier outputting probabilities $\hat{p}(y|\mathbf{x})$, we compute nonconformity scores:
-\begin{equation}
-s_i = 1 - \hat{p}(y_i|\mathbf{x}_i)
-\end{equation}
-The calibrated threshold $\hat{q}$ is the $\lceil(n+1)(1-\alpha)\rceil/n$ quantile of these scores. The prediction set is then:
-\begin{equation}
-    \mathcal{C}(\mathbf{x}) = \{y : \hat{p}(y|\mathbf{x}) \geq 1 - \hat{q}\}
-\end{equation}
-This construction guarantees $\Pr[y^* \in \mathcal{C}(\mathbf{x})] \geq 1 - \alpha$ for any new exchangeable sample, regardless of the model's calibration quality.
-
-\subsection{Adaptive Conformal Inference}
-
-Standard CP assumes exchangeable (IID) data, which is violated in temporal mobility data. ACI~\cite{gibbs2021} addresses this by adapting the effective $\alpha$ online:
-\begin{equation}
-\alpha_{t+1} = \alpha_t + \gamma(\alpha - \text{err}_t)
-\end{equation}
-where $\text{err}_t = \mathbf{1}[y_t \notin \mathcal{C}(\mathbf{x}_t)]$ indicates miscoverage. When coverage exceeds the target (low $\text{err}_t$), $\alpha_t$ increases, shrinking prediction sets. When coverage falls short, $\alpha_t$ decreases, expanding sets. The learning rate $\gamma$ controls adaptation speed.
-
-\subsection{Adaptive Protocol}
-
-\begin{algorithm}
-\caption{Adaptive Handover Management}
-\begin{algorithmic}[1]
-\REQUIRE Measurements $\mathbf{x}$, threshold $K_{\max}$, calibrated model
-\STATE $\mathcal{C}(\mathbf{x}) \leftarrow$ conformal prediction set
-\IF{$|\mathcal{C}(\mathbf{x})| \leq K_{\max}$}
-    \STATE Predictive handover: measure only cells in $\mathcal{C}(\mathbf{x})$
-\ELSE
-    \STATE Measurement-based handover: measure all cells
-\ENDIF
-\end{algorithmic}
-\end{algorithm}
-
-\section{AIML to System-Level KPI Mapping}
-
-A key challenge in deploying ML for network operations is translating AI/ML performance metrics into system-level impact. Table~\ref{tab:kpi} provides this mapping for handover prediction.
-
-\begin{table}[t]
-\caption{AIML KPI to System-Level Metric Mapping}
-\label{tab:kpi}
-\centering
-\begin{tabular}{lll}
-\toprule
-AIML Metric & System Metric & Interpretation \\
-\midrule
-Top-1 Accuracy & HO Success (no CP) & Wrong pred $\rightarrow$ RLF \\
-Coverage & HO Success (w/ CP) & True in set $\rightarrow$ found \\
-Set Size & Meas. Overhead & Cells to measure \\
-1 $-$ Coverage & RLF Rate & True not in set \\
-Serving $\in$ set & Ping-pong Rate & Stay logic $\rightarrow$ hysteresis \\
-Prediction latency & HO latency & Time to generate set \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\textbf{Top-1 Accuracy $\rightarrow$ HO Success (without CP).} When using ML without CP, the network executes handover to the single predicted cell. If this prediction is incorrect, the UE hands over to a suboptimal cell with potentially weak signal, causing radio link failure (RLF). Thus, Top-1 accuracy directly determines handover success rate, and $(1 - \text{accuracy})$ equals the RLF rate. This explains why ML-only approaches are risky: 51\% accuracy in Hard scenario means 49\% RLF rate.
-
-\textbf{Coverage $\rightarrow$ HO Success (with CP).} With CP, the prediction set contains multiple candidate cells. If the true optimal cell is in this set, measurement-based selection within the set will find it, ensuring successful handover. The coverage guarantee $\Pr[y^* \in \mathcal{C}(\mathbf{x})] \geq 1 - \alpha$ directly translates to: at most $\alpha$ fraction of handovers can fail due to the optimal cell being excluded. This provides a formal upper bound on RLF rate.
-
-\textbf{Set Size $\rightarrow$ Measurement Overhead.} The prediction set size determines how many cells the UE must measure before handover. Smaller sets mean fewer measurements, reducing latency and UE power consumption. The key advantage of CP over fixed Top-K baselines is \emph{adaptive} set sizes: easy predictions yield small sets (low overhead), while uncertain predictions yield larger sets (maintained reliability).
-
-\textbf{Practical implications.} Network operators can tune $\alpha$ to achieve desired RLF rate. Lower $\alpha$ (e.g., 0.05) reduces RLF but increases average set size. The adaptive protocol (Algorithm~1) further improves this tradeoff by falling back to exhaustive measurement when sets exceed $K_{\max}$.
+Coverage maps to handover success with bounded miss risk. Set size maps to measurement overhead. Undercoverage maps to RLF proxy. Serving-cell retention in small sets acts as implicit hysteresis and affects ping-pong rate.
 
 \section{Experimental Setup}
 
-\subsection{Synthetic Scenarios}
+\subsection{Synthetic Shift Benchmark}
 
-We generate three scenarios with increasing difficulty, varying the network density, noise level, and prediction horizon:
+Source setting: medium scenario (4$\times$4 cells, $\sigma=6$ dB shadowing, measurement noise 4 dB, speed 1--30 m/s, horizon $H=10$). We train on source and calibrate on source only.
 
-\begin{table}[t]
-\caption{Scenario Parameters}
-\label{tab:scenarios}
-\centering
-\begin{tabular}{lccc}
-\toprule
-Parameter & Easy & Medium & Hard \\
-\midrule
-Grid size & 3$\times$3 & 4$\times$4 & 5$\times$5 \\
-Total cells $K$ & 9 & 16 & 25 \\
-Cell radius (m) & 200 & 150 & 120 \\
-Shadow fading $\sigma$ (dB) & 4 & 6 & 8 \\
-Meas. noise $\sigma_m$ (dB) & 2 & 4 & 6 \\
-Prediction horizon $H$ & 5 & 10 & 15 \\
-\bottomrule
-\end{tabular}
-\end{table}
+Target shifts:
+\begin{enumerate}
+    \item IID (same as source)
+    \item Speed shift (20--50 m/s)
+    \item Measurement-noise shift (8 dB)
+    \item Shadow shift ($\sigma=10$ dB)
+    \item Regime switch (source-like first half, harsh second half)
+\end{enumerate}
 
-Table~\ref{tab:scenarios} summarizes the parameters. The scenarios model progressively denser deployments (smaller cells, more candidates), noisier channels (higher shadow fading), and longer prediction horizons (more uncertainty about future conditions). The Hard scenario represents challenging urban small-cell deployments where traditional handover mechanisms struggle.
+Each result is mean$\pm$std across 5 seeds (42,123,456,789,1011), 600 trajectories/seed, 20 epochs.
 
-For each scenario, we generate 600 trajectories (100 time steps each, $\Delta t = 0.1$s), split 60/20/20 for train/calibration/test. Models are trained for 20 epochs with batch size 512 using Adam optimizer (learning rate $10^{-3}$). We report mean $\pm$ std over 5 random seeds to ensure reproducibility.
+\subsection{Real-World Drift Benchmark}
 
-\subsection{Baselines}
-
-We compare four approaches spanning traditional rules to ML with uncertainty quantification:
-
-\begin{itemize}
-    \item \textbf{3dB Baseline:} Traditional hysteresis rule (Eq.~4). Predicts the strongest cell if it exceeds serving by $>$3dB; otherwise stays on serving. This is the simplest reactive approach used in legacy networks.
-    \item \textbf{ML Top-1:} Neural network point prediction (most probable class). Represents standard ML deployment without uncertainty quantification.
-    \item \textbf{ML Top-K:} Fixed-size prediction using $K=3$ most probable classes. Represents a naive uncertainty approach with fixed overhead.
-    \item \textbf{ML + CP:} Conformal prediction with $\alpha = 0.10$ (90\% target coverage). Represents our proposed approach with adaptive set sizes and formal guarantees.
-\end{itemize}
-
-\subsection{Evaluation Metrics}
-
-We report both AIML and system-level metrics:
-\begin{itemize}
-    \item \textbf{Coverage/Accuracy:} Fraction of samples where true label is in prediction set (or matches point prediction for baselines)
-    \item \textbf{Average Set Size:} Mean number of cells in prediction set (efficiency measure)
-    \item \textbf{HO Success Rate:} End-to-end handover success using adaptive protocol
-    \item \textbf{Measurement Overhead:} Fraction of total cells measured
-    \item \textbf{RLF Rate:} Fraction of predictions where true cell excluded and predictive HO attempted
-\end{itemize}
+Dataset: Irish 5G driving traces~\cite{irish5g}. We split traces by average speed: lower-speed traces as source, higher-speed traces as target. Model trains and calibrates on source only, then evaluates on target.
 
 \section{Results}
 
-\subsection{Main Results}
-
-Table~\ref{tab:main} compares all methods across scenarios. Key observations:
-
-\begin{table}[t]
-\caption{Handover Prediction Results ($\alpha=0.1$, 5 seeds)}
-\label{tab:main}
-\centering
-\begin{tabular}{llcc}
-\toprule
-Scenario & Method & Coverage & Avg Size \\
-\midrule
-\multirow{4}{*}{Easy (9)}
-  & 3dB Baseline & $.79 \pm .02$ & 1 \\
-  & ML Top-1 & $.80 \pm .01$ & 1 \\
-  & ML Top-3 & $.98 \pm .00$ & 3 \\
-  & \textbf{ML + CP} & $\mathbf{.90 \pm .01}$ & $1.4 \pm .1$ \\
-\midrule
-\multirow{4}{*}{Medium (16)}
-  & 3dB Baseline & $.62 \pm .02$ & 1 \\
-  & ML Top-1 & $.65 \pm .02$ & 1 \\
-  & ML Top-3 & $.90 \pm .01$ & 3 \\
-  & \textbf{ML + CP} & $\mathbf{.89 \pm .01}$ & $2.5 \pm .1$ \\
-\midrule
-\multirow{4}{*}{Hard (25)}
-  & 3dB Baseline & $.45 \pm .01$ & 1 \\
-  & ML Top-1 & $.51 \pm .02$ & 1 \\
-  & ML Top-3 & $.79 \pm .01$ & 3 \\
-  & \textbf{ML + CP} & $\mathbf{.90 \pm .01}$ & $4.8 \pm .2$ \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\textbf{3dB baseline degrades with difficulty.} The 3dB rule achieves 79\% accuracy in Easy but drops to 45\% in Hard. This occurs because: (1) more cells create ambiguity, (2) higher noise causes false triggers, (3) longer prediction horizons make current measurements less predictive of future optimal cells.
-
-\textbf{ML improves over 3dB baseline.} ML achieves +0.5\% (Easy) to +6.5\% (Hard) improvement over 3dB. The gain increases with difficulty because ML can learn predictive patterns that the reactive 3dB rule cannot exploit.
-
-\textbf{CP achieves target coverage with adaptive sets.} ML+CP consistently achieves $\sim$90\% coverage across all scenarios. Critically, set size adapts: 1.4 cells in Easy, 4.8 cells in Hard. This is fundamentally different from Top-K baselines where set size is fixed regardless of prediction difficulty.
+\subsection{Coverage Under Shift}
 
 \begin{figure}[t]
 \centering
-\includegraphics[width=\columnwidth]{figures/main_results_v4.pdf}
-\caption{Results (5 seeds). (a) CP achieves 90\% target; 3dB baseline degrades with difficulty. (b) CP set size adapts to scenario difficulty. (c) End-to-end HO performance. (d) Ping-pong rate stable across scenarios.}
-\label{fig:main}
+\includegraphics[width=\columnwidth]{figures/shift-coverage-v6.pdf}
+\caption{Coverage across synthetic shifts. Static CP degrades under hard shift, ACI is most robust, weighted CP helps in moderate covariate shift.}
+\label{fig:shift-coverage}
 \end{figure}
 
-\subsection{End-to-End Handover Performance}
-
-Table~\ref{tab:e2e} shows end-to-end performance with $K_{\max}=5$ (predictive HO if set size $\leq 5$, else exhaustive measurement).
-
 \begin{table}[t]
-\caption{End-to-End Handover Performance ($K_{\max}=5$)}
-\label{tab:e2e}
+\caption{Synthetic Shift Coverage (mean $\pm$ std)}
+\label{tab:shift-coverage}
 \centering
-\begin{tabular}{lcccc}
+\begin{tabular}{lccccc}
 \toprule
-Scenario & HO Success & Overhead & Savings & RLF \\
+Shift & 3dB & Top-1 & Top-3 & Static CP & ACI \\
 \midrule
-Easy & $89.9\%$ & $15.2\%$ & $\mathbf{85\%}$ & $10.1\%$ \\
-Medium & $89.4\%$ & $15.6\%$ & $\mathbf{84\%}$ & $10.6\%$ \\
-Hard & $92.2\%$ & $38.5\%$ & $\mathbf{61\%}$ & $7.8\%$ \\
-\midrule
-Exhaustive & 100\% & 100\% & 0\% & 0\% \\
+IID & $.64\pm.02$ & $.68\pm.02$ & $.91\pm.01$ & $.90\pm.01$ & $.90\pm.00$ \\
+Speed & $.62\pm.01$ & $.65\pm.01$ & $.90\pm.01$ & $.90\pm.01$ & $.90\pm.00$ \\
+MeasNoise & $.55\pm.02$ & $.64\pm.02$ & $.89\pm.01$ & $.88\pm.01$ & $.90\pm.00$ \\
+Shadow & $.40\pm.01$ & $.44\pm.01$ & $.72\pm.01$ & $.69\pm.01$ & $.89\pm.00$ \\
+Regime & $.49\pm.02$ & $.53\pm.02$ & $.79\pm.01$ & $.78\pm.01$ & $.89\pm.00$ \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\textbf{Measurement savings.} CP enables 61--85\% measurement savings versus exhaustive search. Even in Hard scenario with larger sets, significant savings are achieved because many predictions still have small, confident sets.
+Table~\ref{tab:shift-coverage} shows the main trend: static CP is reliable near source but degrades under strong shift (shadow, regime). ACI keeps coverage close to target by expanding sets online.
 
-\textbf{RLF rate matches undercoverage.} RLF rates of 7.8--10.6\% match the $\alpha=0.10$ target, confirming CP's coverage guarantee translates to bounded failure rates.
+\subsection{Tradeoff in Hard Shifts}
 
-\subsection{Why 3dB Baseline Fails}
+\begin{table}[t]
+\caption{Hard-Shift KPI Tradeoff (mean over 5 seeds)}
+\label{tab:hard-shift-kpi}
+\centering
+\begin{tabular}{llcccc}
+\toprule
+Shift & Method & Coverage & Set Size & RLF Proxy & Overhead \\
+\midrule
+\multirow{3}{*}{Shadow}
+& Static CP & $.691$ & 2.61 & $.306$ & $.169$ \\
+& ACI & $\mathbf{.888}$ & 5.98 & $\mathbf{.072}$ & $.600$ \\
+& Weighted CP & $.690$ & 2.60 & $.307$ & $.168$ \\
+\midrule
+\multirow{3}{*}{Regime}
+& Static CP & $.779$ & 2.59 & $.220$ & $.166$ \\
+& ACI & $\mathbf{.892}$ & 4.50 & $\mathbf{.084}$ & $.417$ \\
+& Weighted CP & $.786$ & 2.68 & $.212$ & $.173$ \\
+\bottomrule
+\end{tabular}
+\end{table}
 
-The 3dB baseline fails in harder scenarios for three reasons:
+ACI improves reliability in hard shifts but pays with larger sets and overhead. Weighted CP is most helpful in moderate covariate shift (speed shift: $91.1\%$ coverage) but not enough under extreme nonstationarity.
 
-\textbf{Reactive vs predictive.} The 3dB rule uses current measurements to predict future optimal cells. With 10--15 step prediction horizons, the optimal cell can change significantly, making current measurements unreliable.
-
-\textbf{Noise sensitivity.} Higher shadow fading ($\sigma = 8$dB in Hard) causes false handover triggers and missed necessary handovers.
-
-\textbf{More candidates.} With 25 cells, there are more candidates near the decision boundary. ML can learn to disambiguate; the 3dB rule cannot.
-
-\subsection{Adaptive Conformal Inference}
+\subsection{Regime-Switch Stability}
 
 \begin{figure}[t]
 \centering
-\includegraphics[width=\columnwidth]{figures/aci_rolling.pdf}
-\caption{ACI rolling coverage (window=200) maintains $\sim$90\% target across all scenarios despite temporal dependencies in mobility data.}
-\label{fig:aci}
+\includegraphics[width=\columnwidth]{figures/regime-switch-rolling-v6.pdf}
+\caption{Rolling coverage in regime-switch stream (window=200). ACI tracks the 90\% target more closely than static and weighted CP.}
+\label{fig:regime-rolling}
 \end{figure}
 
-Fig.~\ref{fig:aci} shows ACI maintains coverage over time. The rolling coverage oscillates around the 90\% target, demonstrating that ACI successfully handles temporal dependencies in handover data.
+In regime-switch streams, static and weighted thresholds lag after the phase boundary. ACI adapts online and recovers target-level coverage.
+
+\subsection{Real-World Drift Results}
 
 \begin{table}[t]
-\caption{Standard CP vs ACI ($\alpha=0.1$, 5 seeds)}
-\label{tab:aci}
-\centering
-\begin{tabular}{lcccc}
-\toprule
-& \multicolumn{2}{c}{Standard CP} & \multicolumn{2}{c}{ACI} \\
-\cmidrule(lr){2-3} \cmidrule(lr){4-5}
-Scenario & Coverage & Size & Coverage & Size \\
-\midrule
-Easy & $.90 \pm .01$ & $1.4 \pm .1$ & $.90 \pm .00$ & $1.4 \pm .1$ \\
-Medium & $.89 \pm .01$ & $2.5 \pm .1$ & $.90 \pm .00$ & $2.6 \pm .2$ \\
-Hard & $.90 \pm .01$ & $4.8 \pm .2$ & $.90 \pm .00$ & $4.9 \pm .2$ \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-Table~\ref{tab:aci} compares standard CP and ACI. ACI achieves identical mean coverage with substantially lower variance (std $<$0.01 vs.\ 0.01--0.02 for standard CP), confirming its robustness to temporal dependencies. Set sizes are comparable, indicating ACI's online adaptation does not incur efficiency penalty.
-
-\subsection{Ping-Pong Analysis}
-
-Ping-pong handovers (A$\rightarrow$B$\rightarrow$A patterns within 3 time steps) indicate unstable handover decisions that waste network resources and degrade user experience. We simulate the serving cell sequence under each policy and measure ping-pong rate.
-
-\begin{table}[t]
-\caption{Ping-Pong Rate by Handover Policy}
-\label{tab:pingpong}
-\centering
-\begin{tabular}{lccc}
-\toprule
-Scenario & 3dB & ML Top-1 & CP Adaptive \\
-\midrule
-Easy & $.30 \pm .00$ & $.40 \pm .01$ & $\mathbf{.19 \pm .02}$ \\
-Medium & $.28 \pm .01$ & $.36 \pm .01$ & $\mathbf{.12 \pm .01}$ \\
-Hard & $.21 \pm .00$ & $.31 \pm .00$ & $\mathbf{.13 \pm .01}$ \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-Table~\ref{tab:pingpong} reveals a striking result: \textbf{CP reduces ping-pong by 37--57\%} compared to 3dB baseline, while ML Top-1 \emph{increases} ping-pong by 29--48\%.
-
-The mechanism is the CP adaptive protocol: when the current serving cell is in the prediction set and the set is small ($\leq K_{\max}$), the policy stays on the serving cell rather than triggering an unnecessary handover. This provides natural hysteresis without explicit thresholding. In contrast, ML Top-1 always switches to the predicted cell, causing oscillation when predictions vary frame-to-frame.
-
-\subsection{Sensitivity Analysis}
-
-\textbf{Effect of $\alpha$.} Smaller $\alpha$ (stricter coverage target) increases average set size but reduces RLF rate. With $\alpha=0.05$ (95\% target), we observe set sizes increase by approximately 40\%, but RLF rate drops proportionally. Operators can tune this tradeoff based on their reliability requirements.
-
-\textbf{Effect of $K_{\max}$.} The adaptive protocol threshold $K_{\max}$ controls when to fall back to exhaustive measurement. With $K_{\max}=3$ (stricter), more predictions trigger fallback, increasing measurement overhead but eliminating RLF from confident-but-wrong predictions. With $K_{\max}=10$ (more permissive), measurement savings increase but RLF rate equals the undercoverage rate.
-
-\subsection{Real-World Validation}
-
-To validate beyond synthetic scenarios, we evaluate on the Irish 5G dataset~\cite{irish5g}---a public dataset of driving traces in a commercial 5G network. The dataset contains 82K samples across 50 driving traces, with 1,714 detected handovers spanning 133 unique cells.
-
-\begin{table}[t]
-\caption{Real-World Results (Irish 5G Driving Data)}
-\label{tab:irish}
+\caption{Irish 5G Speed-Split Drift Results}
+\label{tab:irish-shift}
 \centering
 \begin{tabular}{lcc}
 \toprule
 Method & Coverage & Avg Size \\
 \midrule
-Top-1 & $.34$ & 1 \\
-Top-5 & $.77$ & 5 \\
-Top-10 & $.82$ & 10 \\
-\midrule
-CP ($\alpha=0.05$) & $.87$ & 19.7 \\
-CP ($\alpha=0.10$) & $.78$ & 4.6 \\
-CP ($\alpha=0.20$) & $.67$ & 3.1 \\
+Top-1 & $.309$ & 1.00 \\
+Top-3 & $.631$ & 3.00 \\
+Static CP & $.763$ & 4.58 \\
+ACI & $\mathbf{.878}$ & 14.91 \\
+Weighted CP & $.740$ & 4.20 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-Table~\ref{tab:irish} shows results on real-world data. Key observations:
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{figures/irish-shift-rolling-v6.pdf}
+\caption{Irish drift rolling coverage (window=200). ACI is most stable under source-target speed split.}
+\label{fig:irish-rolling}
+\end{figure}
 
-\textbf{Lower baseline accuracy.} Top-1 accuracy drops to 33\% (vs.\ 51--80\% synthetic). This occurs because the Irish dataset provides only serving cell RSRP; neighbor cell measurements are unavailable, making target prediction significantly harder.
-
-\textbf{CP still provides value.} Despite the challenging setting, CP ($\alpha=0.05$) achieves 87\% coverage with average set size 17.7. At $\alpha=0.10$, coverage is 78.5\% with only 4.6 cells---still a substantial reduction from 133 total cells.
-
-\textbf{Practical implication.} Real-world handover prediction benefits from richer features (neighbor RSRP, RSRQ, SNR). The Irish dataset's limitation highlights the importance of comprehensive measurement reporting for ML-based handover.
+Real-world drift confirms the synthetic trend. Static calibration improves over Top-$k$, but ACI provides the strongest reliability under sequential shift at higher measurement cost.
 
 \section{Discussion}
 
-\textbf{Why CP for handover?} The cost of undercoverage in handover is \emph{radio link failure} (RLF)---dropped calls, interrupted sessions, and degraded user experience. Traditional ML approaches provide no reliability guarantees: a 65\% accurate model causes 35\% RLF rate, which is unacceptable for production networks. CP addresses this by providing formal coverage guarantees: with $\alpha=0.10$, at most 10\% of handovers fail due to the true target being outside the prediction set. This enables principled risk management.
+\textbf{When to use which method.} Static CP is a strong default in stable conditions. Weighted CP helps moderate covariate shift when target feature support overlaps source. ACI is the robust choice for sequential nonstationary drift.
 
-\textbf{When does 3dB fail?} The 3dB baseline performs well under specific conditions: (1) few candidate cells with clear signal dominance, (2) low shadow fading noise, and (3) short prediction horizons where current measurements predict future conditions. It fails in dense deployments with many cells near decision boundaries, high-mobility scenarios where channel conditions change rapidly, and long prediction horizons (required for proactive handover). ML+CP provides reliability in these challenging scenarios by learning predictive patterns from data rather than relying on instantaneous thresholds.
+\textbf{System implications.} Reliability gains translate to lower RLF proxy but require explicit overhead budgeting. A practical policy can use ACI in high-uncertainty periods and revert to static CP in stable periods.
 
-\textbf{Set size interpretation.} The average set size of 4.8 in the Hard scenario does not mean every prediction returns 4.8 cells. Set sizes vary per prediction: high-confidence predictions (UE clearly in one cell's coverage) yield size-1 sets, while uncertain predictions (UE near cell boundaries) yield larger sets. This adaptivity is the key advantage over fixed Top-K approaches.
+\textbf{Limitations.} Synthetic channels still simplify real deployments. Irish traces have limited feature richness versus full network measurement reports. We evaluate offline; online deployment requires streaming integration and control-plane constraints.
 
-\textbf{Practical deployment considerations.} The adaptive protocol (Algorithm~1) enables networks to balance latency against reliability through the $K_{\max}$ threshold. O-RAN's near-real-time RIC is well-suited to host CP calibration, updating thresholds as network conditions change. The calibration process requires only the softmax outputs and true labels from recent handovers, which can be collected through existing measurement reporting mechanisms.
+\section{Conclusion}
 
-\textbf{Computational overhead.} CP adds minimal computational cost. We measured wall-clock latency on a standard CPU: calibration takes 0.08ms (one-time, 12K samples), and per-sample set construction takes 1.6$\mu$s. For comparison, neural network inference takes 0.5$\mu$s per sample. Thus CP adds $\sim$3$\times$ the inference cost, but the absolute overhead (microseconds) is negligible for handover decisions operating on 100ms timescales.
+We presented a shift-focused handover reliability study with conformal prediction. Static CP works well in-distribution but degrades in severe shift. ACI restores near-target coverage under shadow and regime-switch drift. Weighted CP improves moderate shifts with smaller set inflation than ACI. On Irish real-world speed-split drift, ACI achieves the highest reliability. The core practical result is clear: robust handover reliability needs adaptive conformal control, not static calibration alone.
 
-\textbf{Alternative uncertainty quantification.} We compare CP against deep ensembles~\cite{lakshminarayanan2017} (5 models, averaged softmax, threshold calibrated to 90\% target). Table~\ref{tab:ensemble} shows both methods achieve similar empirical coverage ($\sim$90\%) with comparable set sizes. However, CP offers two key advantages: (1)~\emph{formal guarantees}---CP's coverage bound holds for any data distribution without assumptions, while ensemble coverage is purely empirical and may degrade under distribution shift; (2)~\emph{efficiency}---CP requires training only one model, while ensembles require 5$\times$ training cost.
+\appendices
+\setcounter{table}{0}
+\renewcommand{\thetable}{A\arabic{table}}
+\renewcommand{\theHtable}{A\arabic{table}}
+\setcounter{figure}{0}
+\renewcommand{\thefigure}{A\arabic{figure}}
+\renewcommand{\theHfigure}{A\arabic{figure}}
+\section{Appendix: Ensemble and Latency}
 
 \begin{table}[t]
-\caption{CP vs Deep Ensemble ($\alpha=0.1$, 5 seeds)}
-\label{tab:ensemble}
+\caption{Appendix: CP vs Ensemble (from v5 runs, 5 seeds)}
+\label{tab:appendix-ensemble}
 \centering
 \begin{tabular}{lcccc}
 \toprule
@@ -413,29 +215,14 @@ Table~\ref{tab:irish} shows results on real-world data. Key observations:
 \cmidrule(lr){2-3} \cmidrule(lr){4-5}
 Scenario & Coverage & Size & Coverage & Size \\
 \midrule
-Easy & $.90 \pm .01$ & $1.4$ & $.90 \pm .01$ & $1.4$ \\
-Medium & $.89 \pm .01$ & $2.5$ & $.90 \pm .01$ & $2.6$ \\
-Hard & $.90 \pm .01$ & $4.8$ & $.90 \pm .01$ & $5.0$ \\
+Easy & $.900$ & 1.37 & $.900$ & 1.38 \\
+Medium & $.893$ & 2.47 & $.898$ & 2.57 \\
+Hard & $.898$ & 4.80 & $.903$ & 5.05 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\textbf{Limitations and future work.} (i) Synthetic data, while following 3GPP path loss models, may not capture all real-world complexity such as building blockage and interference. (ii) We assume RSRP measurements are available from all cells; in practice, UEs report only detected cells. (iii) Evaluation is offline; online deployment may face distribution shift requiring ACI or periodic recalibration. Future work includes real-world deployment validation and integration with O-RAN xApps.
-
-\section{Conclusion}
-
-We presented the first application of conformal prediction to handover target prediction in 5G networks. Our approach addresses the fundamental limitation of ML-based handover: lack of reliability guarantees. By outputting prediction sets with formal coverage guarantees, CP enables networks to make principled tradeoffs between handover latency (predictive handover with small sets) and reliability (measurement-based fallback with large sets).
-
-Key findings from our evaluation:
-\begin{itemize}
-    \item \textbf{CP dramatically outperforms 3dB baseline.} ML+CP achieves 90\% coverage versus 45--79\% for the traditional 3dB hysteresis rule across Easy to Hard scenarios. The improvement is largest (+45\%) in Hard scenarios where the 3dB rule's reactive nature fails.
-    \item \textbf{Adaptive set sizes provide efficient coverage.} CP requires only 1.4 cells in Easy (vs.\ 9 total) and 4.8 in Hard (vs.\ 25 total), yielding 61--85\% measurement savings versus exhaustive search while maintaining formal guarantees.
-    \item \textbf{CP reduces ping-pong handovers by 37--57\%.} The adaptive protocol stays on the serving cell when it's in the prediction set, providing natural hysteresis. ML Top-1 \emph{increases} ping-pong by 29--48\% due to prediction oscillation.
-    \item \textbf{ACI handles temporal dependencies.} Adaptive Conformal Inference maintains the 90\% coverage target despite the sequential, non-exchangeable nature of mobility data.
-    \item \textbf{Real-world validation.} Evaluation on Irish 5G driving data confirms CP's value even with limited features (serving cell RSRP only): 87\% coverage with 17.7 cells versus 33\% Top-1 accuracy.
-\end{itemize}
-
-Future work includes real-world deployment validation, integration with O-RAN near-RT RIC for online threshold adaptation, and extension to multi-connectivity scenarios where prediction sets guide which links to prepare.
+Measured medium-scenario latency: calibration $0.08$ ms, CP set construction $1.59\,\mu$s/sample, NN inference $0.50\,\mu$s/sample.
 
 \bibliographystyle{IEEEtran}
 \begin{thebibliography}{15}

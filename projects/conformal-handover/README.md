@@ -2,6 +2,36 @@
 
 Applying conformal prediction to 5G/6G handover prediction for reliability guarantees.
 
+## Latest Shift-Reliability Workflow
+
+Run synthetic + Irish drift benchmarks with local-first budget control:
+
+```bash
+uv run python run-shift-reliability-v6.py \
+  --mode all \
+  --seeds 42,123,456,789,1011 \
+  --n-traj 600 \
+  --epochs 20 \
+  --budget-cap-usd 12 \
+  --cost-soft-stop-usd 10.5 \
+  --output-json figures/shift-results-v6.json
+```
+
+Run only Irish source-target speed drift:
+
+```bash
+uv run python run-irish-shift-experiment.py \
+  --max-files 50 \
+  --output-json figures/irish-shift-results-v6.json
+```
+
+Main artifacts:
+- `figures/shift-results-v6.json`
+- `figures/shift-coverage-v6.pdf`
+- `figures/regime-switch-rolling-v6.pdf`
+- `figures/irish-shift-results-v6.json`
+- `figures/irish-shift-rolling-v6.pdf`
+
 ## Research Gap
 
 **No existing work on CP + handover.** CP has been applied to:

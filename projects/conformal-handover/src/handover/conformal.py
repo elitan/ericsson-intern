@@ -7,6 +7,7 @@ Implements:
 """
 
 import numpy as np
+from sklearn.linear_model import LogisticRegression
 
 
 def calibrate_threshold(
@@ -30,6 +31,55 @@ def calibrate_threshold(
     q_level = np.ceil((n + 1) * (1 - alpha)) / n
     q_hat = np.quantile(scores, q_level, method="higher")
     return q_hat
+
+
+def calibrate_weighted_threshold(
+    probs: np.ndarray,
+    labels: np.ndarray,
+    weights: np.ndarray,
+    alpha: float = 0.1,
+) -> float:
+    n = len(labels)
+    if n == 0:
+        raise ValueError("Empty calibration set")
+    if len(weights) != n:
+        raise ValueError("weights must match calibration size")
+
+    scores = 1 - probs[np.arange(n), labels]
+    weights = np.asarray(weights, dtype=float)
+    weights = np.maximum(weights, 1e-8)
+    weights = weights / weights.sum()
+
+    order = np.argsort(scores)
+    sorted_scores = scores[order]
+    sorted_weights = weights[order]
+    cdf = np.cumsum(sorted_weights)
+    target = 1 - alpha
+    idx = np.searchsorted(cdf, target, side="left")
+    idx = min(idx, n - 1)
+    return float(sorted_scores[idx])
+
+
+def estimate_density_ratio_weights(
+    source_features: np.ndarray,
+    target_features: np.ndarray,
+    source_cal_features: np.ndarray,
+    max_ratio: float = 50.0,
+) -> np.ndarray:
+    x = np.vstack([source_features, target_features])
+    y = np.concatenate([
+        np.zeros(len(source_features), dtype=int),
+        np.ones(len(target_features), dtype=int),
+    ])
+
+    clf = LogisticRegression(max_iter=1000)
+    clf.fit(x, y)
+    p_target = clf.predict_proba(source_cal_features)[:, 1]
+    eps = 1e-8
+    ratio = p_target / np.maximum(1 - p_target, eps)
+    ratio = np.clip(ratio, 1e-3, max_ratio)
+    ratio = ratio * (len(ratio) / np.sum(ratio))
+    return ratio
 
 
 def predict_sets(

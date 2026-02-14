@@ -319,7 +319,14 @@ def evaluate_methods_for_shift(model, source_data, source_idx, source_cal_probs,
         "weighted-cp": [int(labels[i] in sets_weighted[i]) for i in order],
     }
 
-    return out, rolling
+    cache = {
+        "probs": probs,
+        "labels": labels,
+        "order": order,
+        "top1_pred": top1_pred,
+    }
+
+    return out, rolling, cache
 
 
 def render_shift_figures(aggregated: dict, rolling: dict, figures_dir: Path, alpha: float):
@@ -374,6 +381,61 @@ def render_shift_figures(aggregated: dict, rolling: dict, figures_dir: Path, alp
     plt.close(fig)
 
 
+def parse_float_list(raw: str):
+    return [float(x.strip()) for x in raw.split(",") if x.strip()]
+
+
+def evaluate_aci_gamma_grid(target_data: dict, target_idx: np.ndarray, cache: dict, cal_scores: np.ndarray, alpha: float, gammas: list, k_max: int):
+    out = {}
+    probs = cache["probs"]
+    labels = cache["labels"]
+    order = cache["order"]
+    top1_pred = cache["top1_pred"]
+
+    for gamma in gammas:
+        sets_aci, covered_aci = build_aci_sets(probs, labels, order, cal_scores, alpha=alpha, gamma=gamma)
+        ev = evaluate_cp(sets_aci, labels)
+        ho = simulate_handover_protocol(sets_aci, labels, int(target_data["n_cells"]), k_max=k_max)
+        pp = ping_pong_rate_for_policy(target_data, target_idx, "cp_adaptive", ml_predictions=top1_pred, pred_sets=sets_aci, k_max=k_max)
+        out[str(gamma)] = {
+            "coverage": float(ev["coverage"]),
+            "avg_set_size": float(ev["avg_set_size"]),
+            "ho_success": float(ho["ho_success"]),
+            "measurement_overhead": float(ho["measurement_overhead"]),
+            "rlf_proxy": float(ho["rlf_proxy"]),
+            "ping_pong_rate": float(pp),
+            "rolling_coverage": [int(covered_aci[i]) for i in order],
+        }
+    return out
+
+
+def render_aci_gamma_figure(gamma_agg: dict, figures_dir: Path, alpha: float):
+    gammas = sorted([float(k) for k in gamma_agg.keys()])
+    cov = [gamma_agg[str(g)]["coverage_mean"] for g in gammas]
+    cov_err = [gamma_agg[str(g)]["coverage_std"] for g in gammas]
+    sz = [gamma_agg[str(g)]["avg_set_size_mean"] for g in gammas]
+    sz_err = [gamma_agg[str(g)]["avg_set_size_std"] for g in gammas]
+
+    fig, ax1 = plt.subplots(figsize=(8.5, 3.7))
+    ax1.errorbar(gammas, cov, yerr=cov_err, marker="o", linewidth=1.8, capsize=2, label="coverage")
+    ax1.axhline(1 - alpha, color="red", linestyle="--", linewidth=1.2)
+    ax1.set_xlabel("ACI gamma")
+    ax1.set_ylabel("Coverage")
+    ax1.set_ylim(0.75, 0.93)
+    ax1.set_xscale("log")
+
+    ax2 = ax1.twinx()
+    ax2.errorbar(gammas, sz, yerr=sz_err, marker="s", linewidth=1.6, capsize=2, color="black", label="set size")
+    ax2.set_ylabel("Avg set size")
+    ax2.set_ylim(3.0, 6.8)
+
+    ax1.set_title("Regime-Switch ACI Gamma Tradeoff")
+    fig.tight_layout()
+    fig.savefig(figures_dir / "aci-gamma-ablation-v6.pdf", bbox_inches="tight")
+    fig.savefig(figures_dir / "aci-gamma-ablation-v6.png", dpi=200, bbox_inches="tight")
+    plt.close(fig)
+
+
 def run_irish_shift_script(project_dir: Path, output_json: Path):
     cmd = [sys.executable, "run-irish-shift-experiment.py", "--output-json", str(output_json)]
     return subprocess.run(cmd, cwd=project_dir, check=True)
@@ -402,6 +464,7 @@ def main():
     parser.add_argument("--batch-size", type=int, default=512)
     parser.add_argument("--alpha", type=float, default=0.10)
     parser.add_argument("--gamma", type=float, default=0.01)
+    parser.add_argument("--aci-gamma-grid", type=str, default="0.002,0.005,0.01,0.02,0.05")
     parser.add_argument("--k-max", type=int, default=5)
     parser.add_argument("--rolling-window", type=int, default=200)
     parser.add_argument("--device", choices=["cpu", "cuda"], default="cpu")
@@ -420,6 +483,7 @@ def main():
         device = "cpu"
 
     seeds = [int(x.strip()) for x in args.seeds.split(",") if x.strip()]
+    gamma_grid = parse_float_list(args.aci_gamma_grid)
 
     start = time.time()
     spent_usd = 0.0
@@ -448,6 +512,7 @@ def main():
     if args.mode in ["synthetic-shift", "all"]:
         aggregated = {s: {m: {} for m in METHOD_ORDER} for s in SHIFT_ORDER}
         regime_rolling_seed = {"static-cp": [], "aci": [], "weighted-cp": []}
+        gamma_seed = {str(g): [] for g in gamma_grid}
 
         for seed in seeds:
             source_data = generate_shift_data(seed, args.n_traj, SHIFT_CONFIGS["iid"])
@@ -479,7 +544,7 @@ def main():
                     _, _, test_idx = split_by_trajectory(target_data["trajectory_id"], args.n_traj)
                     target_idx = test_idx
 
-                methods_out, rolling = evaluate_methods_for_shift(
+                methods_out, rolling, cache = evaluate_methods_for_shift(
                     model,
                     source_data,
                     source_idx,
@@ -499,6 +564,23 @@ def main():
                 if shift == "regime-switch":
                     for method in regime_rolling_seed:
                         regime_rolling_seed[method].append(rolling[method])
+                    gamma_out = evaluate_aci_gamma_grid(
+                        target_data,
+                        target_idx,
+                        cache,
+                        source_cal_scores,
+                        args.alpha,
+                        gamma_grid,
+                        args.k_max,
+                    )
+                    for g in gamma_grid:
+                        gamma_seed[str(g)].append({
+                            "coverage": gamma_out[str(g)]["coverage"],
+                            "avg_set_size": gamma_out[str(g)]["avg_set_size"],
+                            "rlf_proxy": gamma_out[str(g)]["rlf_proxy"],
+                            "measurement_overhead": gamma_out[str(g)]["measurement_overhead"],
+                            "ping_pong_rate": gamma_out[str(g)]["ping_pong_rate"],
+                        })
 
             for shift in SHIFT_ORDER:
                 for method in METHOD_ORDER:
@@ -524,11 +606,18 @@ def main():
             stacked = np.vstack([r[:min_len] for r in roll_series])
             rolling_out[method] = stacked.mean(axis=0).tolist()
 
+        gamma_agg = {}
+        for g in gamma_grid:
+            key = str(g)
+            gamma_agg[key] = aggregate_seed_metrics(gamma_seed[key])
+
         render_shift_figures(aggregated, rolling_out, figures_dir, args.alpha)
+        render_aci_gamma_figure(gamma_agg, figures_dir, args.alpha)
 
         payload["synthetic_shift"] = {
             "aggregated": aggregated,
             "regime_rolling": rolling_out,
+            "aci_gamma_ablation": gamma_agg,
         }
 
     if args.mode in ["irish-shift", "all"]:

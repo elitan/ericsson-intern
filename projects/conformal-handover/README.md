@@ -12,6 +12,7 @@ uv run python run-shift-reliability-v6.py \
   --seeds 42,123,456,789,1011 \
   --n-traj 600 \
   --epochs 20 \
+  --aci-gamma-grid 0.002,0.005,0.01,0.02,0.05 \
   --budget-cap-usd 12 \
   --cost-soft-stop-usd 10.5 \
   --output-json figures/shift-results-v6.json
@@ -29,6 +30,7 @@ Main artifacts:
 - `figures/shift-results-v6.json`
 - `figures/shift-coverage-v6.pdf`
 - `figures/regime-switch-rolling-v6.pdf`
+- `figures/aci-gamma-ablation-v6.pdf`
 - `figures/irish-shift-results-v6.json`
 - `figures/irish-shift-rolling-v6.pdf`
 

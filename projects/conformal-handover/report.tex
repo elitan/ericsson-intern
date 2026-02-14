@@ -20,7 +20,7 @@
 \maketitle
 
 \begin{abstract}
-ML handover prediction is accurate in-distribution but fragile under shift. We evaluate conformal prediction (CP) for 5G handover under synthetic and real-world drift. We compare static CP, Adaptive Conformal Inference (ACI), and weighted CP against Top-$k$ and a 3dB hysteresis baseline. On in-distribution synthetic data, static CP reaches $90.3\%$ coverage with set size $2.45$. Under speed and noise shifts, weighted CP recovers coverage to $91.1\%$ in the speed-shift case. Under severe shadow shift, static CP drops to $69.1\%$ while ACI restores $88.8\%$ at larger sets (5.98). In regime-switch streams, ACI stabilizes rolling coverage near the 90\% target. On Irish 5G driving traces with speed-split drift, static CP reaches $76.3\%$ coverage (size 4.58), weighted CP $74.0\%$ (size 4.20), and ACI $87.8\%$ (size 14.9). Results show reliability under shift needs adaptive conformal control, not static calibration alone.
+ML handover prediction is accurate in-distribution but fragile under shift. We evaluate conformal prediction (CP) for 5G handover under synthetic and real-world drift. We compare static CP, Adaptive Conformal Inference (ACI), and weighted CP against Top-$k$ and a 3dB hysteresis baseline. On in-distribution synthetic data, static CP reaches $90.3\%$ coverage with set size $2.45$. Under speed and noise shifts, weighted CP recovers coverage to $91.1\%$ in the speed-shift case. Under severe shadow shift, static CP drops to $69.1\%$ while ACI restores $88.8\%$ at larger sets (5.98). In regime-switch streams, ACI stabilizes rolling coverage near the 90\% target. ACI step-size sweep shows $\\gamma=0.002$--$0.005$ gives the best reliability-overhead tradeoff in our setup. On Irish 5G driving traces with speed-split drift, static CP reaches $76.3\%$ coverage (size 4.58), weighted CP $74.0\%$ (size 4.20), and ACI $87.8\%$ (size 14.9). Results show reliability under shift needs adaptive conformal control, not static calibration alone.
 \end{abstract}
 
 \section{Introduction}
@@ -156,6 +156,17 @@ ACI improves reliability in hard shifts but pays with larger sets and overhead. 
 
 In regime-switch streams, static and weighted thresholds lag after the phase boundary. ACI adapts online and recovers target-level coverage.
 
+\subsection{ACI Step-Size Sensitivity}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{figures/aci-gamma-ablation-v6.pdf}
+\caption{Regime-switch ACI tradeoff over $\\gamma$. Smaller $\\gamma$ improves coverage but increases set size and overhead.}
+\label{fig:aci-gamma}
+\end{figure}
+
+Figure~\ref{fig:aci-gamma} quantifies ACI sensitivity. In our regime-switch benchmark, small step sizes ($\\gamma=0.002$--$0.005$) achieve the highest coverage ($\\approx 89.6\\%$) with moderate set inflation, while larger values ($\\gamma=0.05$) reduce coverage to $87.3\\%$ but lower overhead. This supports tuning $\\gamma$ as a direct reliability-overhead control knob.
+
 \subsection{Real-World Drift Results}
 
 \begin{table}[t]
@@ -186,7 +197,7 @@ Real-world drift confirms the synthetic trend. Static calibration improves over 
 
 \section{Discussion}
 
-\textbf{When to use which method.} Static CP is a strong default in stable conditions. Weighted CP helps moderate covariate shift when target feature support overlaps source. ACI is the robust choice for sequential nonstationary drift.
+\textbf{When to use which method.} Static CP is a strong default in stable conditions. Weighted CP helps moderate covariate shift when target feature support overlaps source. ACI is the robust choice for sequential nonstationary drift, with $\\gamma$ tuning used to set reliability-overhead preference.
 
 \textbf{System implications.} Reliability gains translate to lower RLF proxy but require explicit overhead budgeting. A practical policy can use ACI in high-uncertainty periods and revert to static CP in stable periods.
 

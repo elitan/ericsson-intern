@@ -53,7 +53,7 @@ SHIFT_ORDER = [
     "regime-switch",
 ]
 
-METHOD_ORDER = ["3db", "top1", "top3", "static-cp", "aci", "triggered-aci", "weighted-cp"]
+METHOD_ORDER = ["3db", "top1", "top3", "static-cp", "aci", "daci", "triggered-aci", "weighted-cp"]
 
 
 def parse_env_file(path: Path) -> dict:
@@ -170,6 +170,39 @@ def build_aci_sets(probs: np.ndarray, labels: np.ndarray, order: np.ndarray, cal
         c = int(labels[rel] in s)
         covered[rel] = bool(c)
         aci.update(bool(c))
+    return sets, covered
+
+
+def build_daci_sets(
+    probs: np.ndarray,
+    labels: np.ndarray,
+    order: np.ndarray,
+    cal_scores: np.ndarray,
+    alpha: float,
+    gamma_low: float,
+    gamma_high: float,
+    ema_beta: float,
+):
+    alpha_t = float(alpha)
+    err_ema = float(alpha)
+    sets = [None] * len(labels)
+    covered = np.zeros(len(labels), dtype=bool)
+    n_cal = len(cal_scores)
+    for rel in order:
+        q_level = np.ceil((n_cal + 1) * (1 - alpha_t)) / n_cal
+        q_level = np.clip(q_level, 0, 1)
+        threshold = np.quantile(cal_scores, q_level, method="higher")
+        s = np.where(probs[rel] >= 1 - threshold)[0]
+        if len(s) == 0:
+            s = np.array([int(np.argmax(probs[rel]))])
+        sets[rel] = s
+        c = int(labels[rel] in s)
+        covered[rel] = bool(c)
+        err = 1 - c
+        err_ema = ema_beta * err_ema + (1 - ema_beta) * err
+        gamma_t = gamma_high if err_ema > alpha else gamma_low
+        alpha_t = alpha_t + gamma_t * (alpha - err)
+        alpha_t = np.clip(alpha_t, 0.001, 0.999)
     return sets, covered
 
 
@@ -291,6 +324,9 @@ def evaluate_methods_for_shift(
     stats,
     alpha,
     gamma,
+    daci_gamma_low,
+    daci_gamma_high,
+    daci_ema_beta,
     trigger_quantile,
     device,
     k_max,
@@ -314,6 +350,16 @@ def evaluate_methods_for_shift(
 
     order = sort_relative_by_traj_time(target_data, target_idx)
     sets_aci, covered_aci = build_aci_sets(probs, labels, order, source_cal_scores, alpha=alpha, gamma=gamma)
+    sets_daci, covered_daci = build_daci_sets(
+        probs,
+        labels,
+        order,
+        source_cal_scores,
+        alpha=alpha,
+        gamma_low=daci_gamma_low,
+        gamma_high=daci_gamma_high,
+        ema_beta=daci_ema_beta,
+    )
     source_conf = np.max(source_cal_probs, axis=1)
     trigger_tau = float(np.quantile(source_conf, trigger_quantile))
     target_conf = np.max(probs, axis=1)
@@ -334,6 +380,7 @@ def evaluate_methods_for_shift(
         ("top3", top3, "cp_adaptive"),
         ("static-cp", sets_static, "cp_adaptive"),
         ("aci", sets_aci, "cp_adaptive"),
+        ("daci", sets_daci, "cp_adaptive"),
         ("triggered-aci", sets_triggered, "cp_adaptive"),
         ("weighted-cp", sets_weighted, "cp_adaptive"),
     ]:
@@ -361,6 +408,7 @@ def evaluate_methods_for_shift(
     rolling = {
         "static-cp": [int(labels[i] in sets_static[i]) for i in order],
         "aci": [int(covered_aci[i]) for i in order],
+        "daci": [int(covered_daci[i]) for i in order],
         "triggered-aci": [int(covered_triggered[i]) for i in order],
         "weighted-cp": [int(labels[i] in sets_weighted[i]) for i in order],
     }
@@ -410,7 +458,7 @@ def render_shift_figures(aggregated: dict, rolling: dict, figures_dir: Path, alp
     fig.savefig(figures_dir / "shift-coverage-v6.png", dpi=200, bbox_inches="tight")
     plt.close(fig)
 
-    methods = ["static-cp", "aci", "weighted-cp"]
+    methods = ["static-cp", "aci", "daci", "weighted-cp"]
     fig, ax = plt.subplots(figsize=(8.5, 3.7))
     for method in methods:
         vals = np.array(rolling[method], dtype=float)
@@ -482,7 +530,14 @@ def render_aci_gamma_figure(gamma_agg: dict, figures_dir: Path, alpha: float):
     plt.close(fig)
 
 
-def run_irish_shift_script(project_dir: Path, output_json: Path, trigger_quantile: float):
+def run_irish_shift_script(
+    project_dir: Path,
+    output_json: Path,
+    trigger_quantile: float,
+    daci_gamma_low: float,
+    daci_gamma_high: float,
+    daci_ema_beta: float,
+):
     cmd = [
         sys.executable,
         "run-irish-shift-experiment.py",
@@ -490,6 +545,12 @@ def run_irish_shift_script(project_dir: Path, output_json: Path, trigger_quantil
         str(output_json),
         "--trigger-quantile",
         str(trigger_quantile),
+        "--daci-gamma-low",
+        str(daci_gamma_low),
+        "--daci-gamma-high",
+        str(daci_gamma_high),
+        "--daci-ema-beta",
+        str(daci_ema_beta),
     ]
     return subprocess.run(cmd, cwd=project_dir, check=True)
 
@@ -517,6 +578,9 @@ def main():
     parser.add_argument("--batch-size", type=int, default=512)
     parser.add_argument("--alpha", type=float, default=0.10)
     parser.add_argument("--gamma", type=float, default=0.01)
+    parser.add_argument("--daci-gamma-low", type=float, default=0.005)
+    parser.add_argument("--daci-gamma-high", type=float, default=0.02)
+    parser.add_argument("--daci-ema-beta", type=float, default=0.95)
     parser.add_argument("--trigger-quantile", type=float, default=0.7)
     parser.add_argument("--aci-gamma-grid", type=str, default="0.002,0.005,0.01,0.02,0.05")
     parser.add_argument("--k-max", type=int, default=5)
@@ -540,6 +604,12 @@ def main():
     gamma_grid = parse_float_list(args.aci_gamma_grid)
     if args.trigger_quantile < 0.0 or args.trigger_quantile > 1.0:
         raise ValueError("--trigger-quantile must be in [0,1]")
+    if args.daci_gamma_low <= 0.0 or args.daci_gamma_high <= 0.0:
+        raise ValueError("--daci-gamma-low and --daci-gamma-high must be > 0")
+    if args.daci_gamma_low > args.daci_gamma_high:
+        raise ValueError("--daci-gamma-low must be <= --daci-gamma-high")
+    if args.daci_ema_beta < 0.0 or args.daci_ema_beta >= 1.0:
+        raise ValueError("--daci-ema-beta must be in [0,1)")
 
     start = time.time()
     spent_usd = 0.0
@@ -554,6 +624,9 @@ def main():
             "batch_size": args.batch_size,
             "alpha": args.alpha,
             "gamma": args.gamma,
+            "daci_gamma_low": args.daci_gamma_low,
+            "daci_gamma_high": args.daci_gamma_high,
+            "daci_ema_beta": args.daci_ema_beta,
             "trigger_quantile": args.trigger_quantile,
             "k_max": args.k_max,
             "device": device,
@@ -568,7 +641,7 @@ def main():
 
     if args.mode in ["synthetic-shift", "all"]:
         aggregated = {s: {m: {} for m in METHOD_ORDER} for s in SHIFT_ORDER}
-        regime_rolling_seed = {"static-cp": [], "aci": [], "weighted-cp": []}
+        regime_rolling_seed = {"static-cp": [], "aci": [], "daci": [], "weighted-cp": []}
         gamma_seed = {str(g): [] for g in gamma_grid}
 
         for seed in seeds:
@@ -613,6 +686,9 @@ def main():
                     stats,
                     args.alpha,
                     args.gamma,
+                    args.daci_gamma_low,
+                    args.daci_gamma_high,
+                    args.daci_ema_beta,
                     args.trigger_quantile,
                     device,
                     args.k_max,
@@ -652,11 +728,15 @@ def main():
         for shift in SHIFT_ORDER:
             s_static = aggregated[shift]["static-cp"]["seed_metrics"]
             s_aci = aggregated[shift]["aci"]["seed_metrics"]
+            s_daci = aggregated[shift]["daci"]["seed_metrics"]
             s_triggered = aggregated[shift]["triggered-aci"]["seed_metrics"]
             s_weighted = aggregated[shift]["weighted-cp"]["seed_metrics"]
             shift_delta[shift] = {
                 "aci_minus_static_coverage": paired_delta_with_ci(s_aci, s_static, "coverage"),
                 "aci_minus_static_rlf_proxy": paired_delta_with_ci(s_aci, s_static, "rlf_proxy"),
+                "daci_minus_static_coverage": paired_delta_with_ci(s_daci, s_static, "coverage"),
+                "daci_minus_aci_coverage": paired_delta_with_ci(s_daci, s_aci, "coverage"),
+                "daci_minus_aci_overhead": paired_delta_with_ci(s_daci, s_aci, "measurement_overhead"),
                 "triggered_minus_static_coverage": paired_delta_with_ci(s_triggered, s_static, "coverage"),
                 "triggered_minus_aci_coverage": paired_delta_with_ci(s_triggered, s_aci, "coverage"),
                 "triggered_minus_aci_overhead": paired_delta_with_ci(s_triggered, s_aci, "measurement_overhead"),
@@ -696,7 +776,14 @@ def main():
 
     if args.mode in ["irish-shift", "all"]:
         irish_path = figures_dir / "irish-shift-results-v6.json"
-        run_irish_shift_script(project_dir, irish_path, args.trigger_quantile)
+        run_irish_shift_script(
+            project_dir,
+            irish_path,
+            args.trigger_quantile,
+            args.daci_gamma_low,
+            args.daci_gamma_high,
+            args.daci_ema_beta,
+        )
         payload["irish_shift"] = json.loads(irish_path.read_text())
 
     overflow = maybe_run_vast_overflow(

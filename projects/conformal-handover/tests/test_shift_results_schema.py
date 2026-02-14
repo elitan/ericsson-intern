@@ -23,7 +23,7 @@ def test_shift_results_schema():
     assert "paired_deltas" in synthetic
 
     shifts = ["iid", "speed-shift", "measurement-noise-shift", "shadow-shift", "regime-switch"]
-    methods = ["3db", "top1", "top3", "static-cp", "aci", "triggered-aci", "weighted-cp"]
+    methods = ["3db", "top1", "top3", "static-cp", "aci", "daci", "triggered-aci", "weighted-cp"]
     for shift in shifts:
         assert shift in synthetic["aggregated"]
         for method in methods:
@@ -37,7 +37,7 @@ def test_irish_results_schema():
     assert "speed_bins" in data
     assert "paired_deltas" in data
 
-    methods = ["top1", "top3", "static-cp", "aci", "triggered-aci", "weighted-cp"]
+    methods = ["top1", "top3", "static-cp", "aci", "daci", "triggered-aci", "weighted-cp"]
     for method in methods:
         assert method in data["results"]
         assert method in data["bootstrap_ci"]

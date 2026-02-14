@@ -83,6 +83,62 @@ def summarize_sets(name: str, sets: list, labels: np.ndarray):
     }
 
 
+def trace_bootstrap_ci(trace_ids: np.ndarray, cover: np.ndarray, sizes: np.ndarray, n_boot: int = 2000, seed: int = 123):
+    uniq = np.unique(trace_ids)
+    if len(uniq) == 0:
+        raise ValueError("empty trace ids")
+    idx_by_trace = {}
+    for t in uniq:
+        idx_by_trace[int(t)] = np.where(trace_ids == t)[0]
+    rng = np.random.default_rng(seed)
+    cover_boot = []
+    size_boot = []
+    n = len(uniq)
+    uniq_list = [int(x) for x in uniq.tolist()]
+    for _ in range(n_boot):
+        sampled = rng.choice(uniq_list, size=n, replace=True)
+        idx = np.concatenate([idx_by_trace[int(t)] for t in sampled])
+        cover_boot.append(float(np.mean(cover[idx])))
+        size_boot.append(float(np.mean(sizes[idx])))
+    c_lo, c_hi = np.percentile(np.array(cover_boot), [2.5, 97.5])
+    s_lo, s_hi = np.percentile(np.array(size_boot), [2.5, 97.5])
+    return {
+        "coverage_ci95_low": float(c_lo),
+        "coverage_ci95_high": float(c_hi),
+        "avg_set_size_ci95_low": float(s_lo),
+        "avg_set_size_ci95_high": float(s_hi),
+    }
+
+
+def trace_bootstrap_delta_ci(trace_ids: np.ndarray, cover_a: np.ndarray, cover_b: np.ndarray, sizes_a: np.ndarray, sizes_b: np.ndarray, n_boot: int = 2000, seed: int = 123):
+    uniq = np.unique(trace_ids)
+    if len(uniq) == 0:
+        raise ValueError("empty trace ids")
+    idx_by_trace = {}
+    for t in uniq:
+        idx_by_trace[int(t)] = np.where(trace_ids == t)[0]
+    rng = np.random.default_rng(seed)
+    cov_boot = []
+    size_boot = []
+    n = len(uniq)
+    uniq_list = [int(x) for x in uniq.tolist()]
+    for _ in range(n_boot):
+        sampled = rng.choice(uniq_list, size=n, replace=True)
+        idx = np.concatenate([idx_by_trace[int(t)] for t in sampled])
+        cov_boot.append(float(np.mean(cover_a[idx]) - np.mean(cover_b[idx])))
+        size_boot.append(float(np.mean(sizes_a[idx]) - np.mean(sizes_b[idx])))
+    c_lo, c_hi = np.percentile(np.array(cov_boot), [2.5, 97.5])
+    s_lo, s_hi = np.percentile(np.array(size_boot), [2.5, 97.5])
+    return {
+        "coverage_delta_mean": float(np.mean(cover_a) - np.mean(cover_b)),
+        "coverage_ci95_low": float(c_lo),
+        "coverage_ci95_high": float(c_hi),
+        "avg_set_size_delta_mean": float(np.mean(sizes_a) - np.mean(sizes_b)),
+        "avg_set_size_ci95_low": float(s_lo),
+        "avg_set_size_ci95_high": float(s_hi),
+    }
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--output-json", type=str, default="figures/irish-shift-results-v6.json")
@@ -169,6 +225,46 @@ def main():
         "triggered-aci": rolling_mean(covered_triggered[order].astype(float), args.rolling_window).tolist(),
         "weighted-cp": rolling_mean(np.array([int(target_labels[i] in sets_weighted[i]) for i in order]), args.rolling_window).tolist(),
     }
+    target_trace_ids = trace_ids[target_idx]
+    method_sets = {
+        "top1": top1,
+        "top3": top3,
+        "static-cp": sets_static,
+        "aci": sets_aci,
+        "triggered-aci": sets_triggered,
+        "weighted-cp": sets_weighted,
+    }
+    method_cover = {}
+    method_size = {}
+    for name, sets in method_sets.items():
+        method_cover[name] = np.array([int(target_labels[i] in sets[i]) for i in range(len(target_labels))], dtype=float)
+        method_size[name] = np.array([len(sets[i]) for i in range(len(target_labels))], dtype=float)
+    bootstrap = {}
+    for name in method_sets:
+        bootstrap[name] = trace_bootstrap_ci(target_trace_ids, method_cover[name], method_size[name])
+    paired_deltas = {
+        "aci_minus_static": trace_bootstrap_delta_ci(
+            target_trace_ids,
+            method_cover["aci"],
+            method_cover["static-cp"],
+            method_size["aci"],
+            method_size["static-cp"],
+        ),
+        "triggered_minus_static": trace_bootstrap_delta_ci(
+            target_trace_ids,
+            method_cover["triggered-aci"],
+            method_cover["static-cp"],
+            method_size["triggered-aci"],
+            method_size["static-cp"],
+        ),
+        "triggered_minus_aci": trace_bootstrap_delta_ci(
+            target_trace_ids,
+            method_cover["triggered-aci"],
+            method_cover["aci"],
+            method_size["triggered-aci"],
+            method_size["aci"],
+        ),
+    }
 
     plt.rcParams.update({
         "font.size": 10,
@@ -221,6 +317,8 @@ def main():
             "triggered-aci": summarize_sets("triggered-aci", sets_triggered, target_labels),
             "weighted-cp": summarize_sets("weighted-cp", sets_weighted, target_labels),
         },
+        "bootstrap_ci": bootstrap,
+        "paired_deltas": paired_deltas,
         "rolling": rolling,
     }
 

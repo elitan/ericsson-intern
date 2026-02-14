@@ -89,8 +89,11 @@ def main():
     parser.add_argument("--max-files", type=int, default=50)
     parser.add_argument("--alpha", type=float, default=0.10)
     parser.add_argument("--gamma", type=float, default=0.01)
+    parser.add_argument("--trigger-quantile", type=float, default=0.7)
     parser.add_argument("--rolling-window", type=int, default=200)
     args = parser.parse_args()
+    if args.trigger_quantile < 0.0 or args.trigger_quantile > 1.0:
+        raise ValueError("--trigger-quantile must be in [0,1]")
 
     project_dir = Path(__file__).resolve().parent
     figures_dir = project_dir / "figures"
@@ -149,10 +152,21 @@ def main():
     cal_scores = 1 - cal_probs[np.arange(len(cal_labels)), cal_labels]
     order = np.lexsort((target_idx, trace_ids[target_idx]))
     sets_aci, covered_aci = build_aci_sets(target_probs, target_labels, order, cal_scores, args.alpha, args.gamma)
+    source_conf = np.max(cal_probs, axis=1)
+    trigger_tau = float(np.quantile(source_conf, args.trigger_quantile))
+    target_conf = np.max(target_probs, axis=1)
+    sets_triggered = []
+    covered_triggered = np.zeros(len(target_labels), dtype=bool)
+    for i in range(len(target_labels)):
+        use_aci = target_conf[i] < trigger_tau
+        s = sets_aci[i] if use_aci else sets_static[i]
+        sets_triggered.append(s)
+        covered_triggered[i] = bool(target_labels[i] in s)
 
     rolling = {
         "static-cp": rolling_mean(np.array([int(target_labels[i] in sets_static[i]) for i in order]), args.rolling_window).tolist(),
         "aci": rolling_mean(covered_aci[order].astype(float), args.rolling_window).tolist(),
+        "triggered-aci": rolling_mean(covered_triggered[order].astype(float), args.rolling_window).tolist(),
         "weighted-cp": rolling_mean(np.array([int(target_labels[i] in sets_weighted[i]) for i in order]), args.rolling_window).tolist(),
     }
 
@@ -169,7 +183,7 @@ def main():
         "font.serif": ["Times", "Times New Roman", "DejaVu Serif"],
     })
     fig, ax = plt.subplots(figsize=(8.5, 3.7))
-    for method in ["static-cp", "aci", "weighted-cp"]:
+    for method in ["static-cp", "aci", "triggered-aci", "weighted-cp"]:
         ax.plot(rolling[method], label=method, linewidth=1.8)
     ax.axhline(1 - args.alpha, color="red", linestyle="--", linewidth=1.2)
     ax.set_ylim(0.45, 1.02)
@@ -186,6 +200,7 @@ def main():
         "metadata": {
             "alpha": args.alpha,
             "gamma": args.gamma,
+            "trigger_quantile": args.trigger_quantile,
             "max_files": args.max_files,
             "dataset_dir": str(data_dir),
             "n_cells": int(data["n_cells"]),
@@ -203,6 +218,7 @@ def main():
             "top3": summarize_sets("top3", top3, target_labels),
             "static-cp": summarize_sets("static-cp", sets_static, target_labels),
             "aci": summarize_sets("aci", sets_aci, target_labels),
+            "triggered-aci": summarize_sets("triggered-aci", sets_triggered, target_labels),
             "weighted-cp": summarize_sets("weighted-cp", sets_weighted, target_labels),
         },
         "rolling": rolling,

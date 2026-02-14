@@ -482,8 +482,15 @@ def render_aci_gamma_figure(gamma_agg: dict, figures_dir: Path, alpha: float):
     plt.close(fig)
 
 
-def run_irish_shift_script(project_dir: Path, output_json: Path):
-    cmd = [sys.executable, "run-irish-shift-experiment.py", "--output-json", str(output_json)]
+def run_irish_shift_script(project_dir: Path, output_json: Path, trigger_quantile: float):
+    cmd = [
+        sys.executable,
+        "run-irish-shift-experiment.py",
+        "--output-json",
+        str(output_json),
+        "--trigger-quantile",
+        str(trigger_quantile),
+    ]
     return subprocess.run(cmd, cwd=project_dir, check=True)
 
 
@@ -689,7 +696,7 @@ def main():
 
     if args.mode in ["irish-shift", "all"]:
         irish_path = figures_dir / "irish-shift-results-v6.json"
-        run_irish_shift_script(project_dir, irish_path)
+        run_irish_shift_script(project_dir, irish_path, args.trigger_quantile)
         payload["irish_shift"] = json.loads(irish_path.read_text())
 
     overflow = maybe_run_vast_overflow(

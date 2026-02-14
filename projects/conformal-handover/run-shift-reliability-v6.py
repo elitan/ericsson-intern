@@ -53,7 +53,7 @@ SHIFT_ORDER = [
     "regime-switch",
 ]
 
-METHOD_ORDER = ["3db", "top1", "top3", "static-cp", "aci", "weighted-cp"]
+METHOD_ORDER = ["3db", "top1", "top3", "static-cp", "aci", "triggered-aci", "weighted-cp"]
 
 
 def parse_env_file(path: Path) -> dict:
@@ -213,6 +213,25 @@ def aggregate_seed_metrics(seed_metrics: list):
     return out
 
 
+def paired_delta_with_ci(seed_a: list, seed_b: list, field: str, n_boot: int = 2000):
+    a = np.array([x[field] for x in seed_a], dtype=float)
+    b = np.array([x[field] for x in seed_b], dtype=float)
+    d = a - b
+    rng = np.random.default_rng(123)
+    boot = []
+    n = len(d)
+    for _ in range(n_boot):
+        idx = rng.integers(0, n, size=n)
+        boot.append(d[idx].mean())
+    lo, hi = np.percentile(np.array(boot), [2.5, 97.5])
+    return {
+        "mean_delta": float(d.mean()),
+        "std_delta": float(d.std()),
+        "ci95_low": float(lo),
+        "ci95_high": float(hi),
+    }
+
+
 def generate_shift_data(seed: int, n_traj: int, cfg: ShiftConfig):
     network = NetworkConfig(
         n_gnb_x=4,
@@ -260,7 +279,22 @@ def make_regime_switch_data(seed: int, n_traj: int):
     return out
 
 
-def evaluate_methods_for_shift(model, source_data, source_idx, source_cal_probs, source_cal_labels, source_cal_scores, target_data, target_idx, stats, alpha, gamma, device, k_max):
+def evaluate_methods_for_shift(
+    model,
+    source_data,
+    source_idx,
+    source_cal_probs,
+    source_cal_labels,
+    source_cal_scores,
+    target_data,
+    target_idx,
+    stats,
+    alpha,
+    gamma,
+    trigger_quantile,
+    device,
+    k_max,
+):
     probs = probs_with_stats(model, target_data, target_idx, stats, device)
     labels = target_data["optimal_cell"][target_idx]
 
@@ -280,6 +314,16 @@ def evaluate_methods_for_shift(model, source_data, source_idx, source_cal_probs,
 
     order = sort_relative_by_traj_time(target_data, target_idx)
     sets_aci, covered_aci = build_aci_sets(probs, labels, order, source_cal_scores, alpha=alpha, gamma=gamma)
+    source_conf = np.max(source_cal_probs, axis=1)
+    trigger_tau = float(np.quantile(source_conf, trigger_quantile))
+    target_conf = np.max(probs, axis=1)
+    sets_triggered = []
+    covered_triggered = np.zeros(len(labels), dtype=bool)
+    for i in range(len(labels)):
+        use_aci = target_conf[i] < trigger_tau
+        s = sets_aci[i] if use_aci else sets_static[i]
+        sets_triggered.append(s)
+        covered_triggered[i] = bool(labels[i] in s)
 
     baseline = evaluate_3db_baseline(target_data["rsrp"][target_idx], target_data["serving_cell"][target_idx], labels)
 
@@ -290,6 +334,7 @@ def evaluate_methods_for_shift(model, source_data, source_idx, source_cal_probs,
         ("top3", top3, "cp_adaptive"),
         ("static-cp", sets_static, "cp_adaptive"),
         ("aci", sets_aci, "cp_adaptive"),
+        ("triggered-aci", sets_triggered, "cp_adaptive"),
         ("weighted-cp", sets_weighted, "cp_adaptive"),
     ]:
         ev = evaluate_cp(sets, labels)
@@ -316,6 +361,7 @@ def evaluate_methods_for_shift(model, source_data, source_idx, source_cal_probs,
     rolling = {
         "static-cp": [int(labels[i] in sets_static[i]) for i in order],
         "aci": [int(covered_aci[i]) for i in order],
+        "triggered-aci": [int(covered_triggered[i]) for i in order],
         "weighted-cp": [int(labels[i] in sets_weighted[i]) for i in order],
     }
 
@@ -464,6 +510,7 @@ def main():
     parser.add_argument("--batch-size", type=int, default=512)
     parser.add_argument("--alpha", type=float, default=0.10)
     parser.add_argument("--gamma", type=float, default=0.01)
+    parser.add_argument("--trigger-quantile", type=float, default=0.7)
     parser.add_argument("--aci-gamma-grid", type=str, default="0.002,0.005,0.01,0.02,0.05")
     parser.add_argument("--k-max", type=int, default=5)
     parser.add_argument("--rolling-window", type=int, default=200)
@@ -484,6 +531,8 @@ def main():
 
     seeds = [int(x.strip()) for x in args.seeds.split(",") if x.strip()]
     gamma_grid = parse_float_list(args.aci_gamma_grid)
+    if args.trigger_quantile < 0.0 or args.trigger_quantile > 1.0:
+        raise ValueError("--trigger-quantile must be in [0,1]")
 
     start = time.time()
     spent_usd = 0.0
@@ -498,6 +547,7 @@ def main():
             "batch_size": args.batch_size,
             "alpha": args.alpha,
             "gamma": args.gamma,
+            "trigger_quantile": args.trigger_quantile,
             "k_max": args.k_max,
             "device": device,
             "budget_cap_usd": args.budget_cap_usd,
@@ -556,6 +606,7 @@ def main():
                     stats,
                     args.alpha,
                     args.gamma,
+                    args.trigger_quantile,
                     device,
                     args.k_max,
                 )
@@ -590,6 +641,21 @@ def main():
                         aggregated[shift][method]["seed_metrics"] = []
                     aggregated[shift][method]["seed_metrics"].append(seed_shift_results[shift][method])
 
+        shift_delta = {}
+        for shift in SHIFT_ORDER:
+            s_static = aggregated[shift]["static-cp"]["seed_metrics"]
+            s_aci = aggregated[shift]["aci"]["seed_metrics"]
+            s_triggered = aggregated[shift]["triggered-aci"]["seed_metrics"]
+            s_weighted = aggregated[shift]["weighted-cp"]["seed_metrics"]
+            shift_delta[shift] = {
+                "aci_minus_static_coverage": paired_delta_with_ci(s_aci, s_static, "coverage"),
+                "aci_minus_static_rlf_proxy": paired_delta_with_ci(s_aci, s_static, "rlf_proxy"),
+                "triggered_minus_static_coverage": paired_delta_with_ci(s_triggered, s_static, "coverage"),
+                "triggered_minus_aci_coverage": paired_delta_with_ci(s_triggered, s_aci, "coverage"),
+                "triggered_minus_aci_overhead": paired_delta_with_ci(s_triggered, s_aci, "measurement_overhead"),
+                "weighted_minus_static_coverage": paired_delta_with_ci(s_weighted, s_static, "coverage"),
+            }
+
         for shift in SHIFT_ORDER:
             for method in METHOD_ORDER:
                 seed_metrics = aggregated[shift][method].get("seed_metrics", [])
@@ -618,6 +684,7 @@ def main():
             "aggregated": aggregated,
             "regime_rolling": rolling_out,
             "aci_gamma_ablation": gamma_agg,
+            "paired_deltas": shift_delta,
         }
 
     if args.mode in ["irish-shift", "all"]:

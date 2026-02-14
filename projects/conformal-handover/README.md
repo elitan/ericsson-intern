@@ -13,6 +13,7 @@ uv run python run-shift-reliability-v6.py \
   --n-traj 600 \
   --epochs 20 \
   --aci-gamma-grid 0.002,0.005,0.01,0.02,0.05 \
+  --trigger-quantile 0.7 \
   --budget-cap-usd 12 \
   --cost-soft-stop-usd 10.5 \
   --output-json figures/shift-results-v6.json

@@ -17,10 +17,13 @@ def test_shift_results_schema():
     assert "synthetic_shift" in data
     assert "irish_shift" in data
     assert "cost_tracking" in data
+    assert "metadata" in data
 
     synthetic = data["synthetic_shift"]
     assert "aggregated" in synthetic
     assert "paired_deltas" in synthetic
+    assert "aci_gamma_ablation" in synthetic
+    assert "trigger_quantile_ablation" in synthetic
 
     shifts = ["iid", "speed-shift", "measurement-noise-shift", "shadow-shift", "regime-switch"]
     methods = ["3db", "top1", "top3", "static-cp", "aci", "daci", "triggered-aci", "weighted-cp"]
@@ -29,6 +32,10 @@ def test_shift_results_schema():
         for method in methods:
             assert method in synthetic["aggregated"][shift]
 
+    assert synthetic["aci_gamma_ablation"]
+    assert synthetic["trigger_quantile_ablation"]
+    assert "irish_seed" in data["metadata"]
+
 
 def test_irish_results_schema():
     data = load_json("irish-shift-results-v6.json")
@@ -36,11 +43,13 @@ def test_irish_results_schema():
     assert "bootstrap_ci" in data
     assert "speed_bins" in data
     assert "paired_deltas" in data
+    assert "metadata" in data
 
     methods = ["top1", "top3", "static-cp", "aci", "daci", "triggered-aci", "weighted-cp"]
     for method in methods:
         assert method in data["results"]
         assert method in data["bootstrap_ci"]
+    assert "seed" in data["metadata"]
 
 
 def test_metric_sanity_ranges():

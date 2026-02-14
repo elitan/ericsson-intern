@@ -20,7 +20,7 @@
 \maketitle
 
 \begin{abstract}
-ML handover prediction is accurate in-distribution but fragile under shift. We evaluate conformal prediction (CP) for 5G handover under synthetic and real-world drift. We compare static CP, Adaptive Conformal Inference (ACI), dynamic-step ACI (DACI), weighted CP, and a confidence-gated triggered ACI against Top-$k$ and a 3dB hysteresis baseline. On in-distribution synthetic data, static CP reaches $90.3\%$ coverage with set size $2.46$. Under speed and noise shifts, weighted CP reaches $91.1\%$ in the speed-shift case. Under severe shadow shift, static CP drops to $69.2\%$ while ACI restores $88.8\%$ and DACI reaches $89.9\%$ at higher overhead. In regime-switch streams, ACI stabilizes rolling coverage near the 90\% target, while DACI reaches $91.7\%$. ACI step-size sweep shows $\gamma=0.002$--$0.005$ gives the best reliability-overhead tradeoff in our setup. On Irish 5G driving traces with speed-split drift, static CP reaches $76.2\%$ coverage (size 4.71), weighted CP $73.6\%$ (size 4.34), ACI $87.8\%$ (size 14.9), and DACI $92.5\%$ (size 16.2). Results show reliability under shift needs adaptive conformal control, not static calibration alone.
+ML handover prediction is accurate in-distribution but fragile under shift. We evaluate conformal prediction (CP) for 5G handover under synthetic and real-world drift. We compare static CP, Adaptive Conformal Inference (ACI), dynamic-step ACI (DACI), weighted CP, and a confidence-gated triggered ACI against Top-$k$ and a 3dB hysteresis baseline. On in-distribution synthetic data, static CP reaches $90.2\%$ coverage with set size $2.45$. Under speed and noise shifts, weighted CP reaches $91.1\%$ in the speed-shift case. Under severe shadow shift, static CP drops to $69.2\%$ while ACI restores $88.8\%$ and DACI reaches $89.9\%$ at higher overhead. In regime-switch streams, ACI stabilizes rolling coverage near the 90\% target, while DACI reaches $91.8\%$. ACI step-size sweep shows $\gamma=0.002$--$0.005$ gives the best reliability-overhead tradeoff in our setup. On Irish 5G driving traces with speed-split drift, static CP reaches $76.4\%$ coverage (size 4.69), weighted CP $73.6\%$ (size 4.22), ACI $87.9\%$ (size 14.7), and DACI $92.5\%$ (size 15.9). Results show reliability under shift needs adaptive conformal control, not static calibration alone.
 \end{abstract}
 
 \section{Introduction}
@@ -136,22 +136,22 @@ Shift & Method & Coverage & Set Size & RLF Proxy & Overhead \\
 \midrule
 \multirow{5}{*}{Shadow}
 & Static CP & $.692$ & 2.62 & $.306$ & $.170$ \\
-& ACI & $\mathbf{.888}$ & 5.98 & $\mathbf{.073}$ & $.600$ \\
-& DACI & $\mathbf{.899}$ & 6.34 & $\mathbf{.058}$ & $.651$ \\
-& Triggered ACI & $.843$ & 5.40 & $.121$ & $.542$ \\
-& Weighted CP & $.691$ & 2.60 & $.307$ & $.168$ \\
+& ACI & $\mathbf{.888}$ & 5.98 & $\mathbf{.072}$ & $.601$ \\
+& DACI & $\mathbf{.899}$ & 6.35 & $\mathbf{.058}$ & $.650$ \\
+& Triggered ACI & $.842$ & 5.38 & $.122$ & $.541$ \\
+& Weighted CP & $.691$ & 2.61 & $.306$ & $.169$ \\
 \midrule
 \multirow{5}{*}{Regime}
-& Static CP & $.780$ & 2.60 & $.218$ & $.167$ \\
-& ACI & $\mathbf{.892}$ & 4.48 & $\mathbf{.084}$ & $.413$ \\
-& DACI & $\mathbf{.917}$ & 4.99 & $\mathbf{.057}$ & $.470$ \\
-& Triggered ACI & $.868$ & 4.20 & $.109$ & $.384$ \\
-& Weighted CP & $.787$ & 2.69 & $.210$ & $.174$ \\
+& Static CP & $.781$ & 2.61 & $.217$ & $.168$ \\
+& ACI & $\mathbf{.892}$ & 4.50 & $\mathbf{.083}$ & $.417$ \\
+& DACI & $\mathbf{.918}$ & 5.04 & $\mathbf{.056}$ & $.477$ \\
+& Triggered ACI & $.869$ & 4.22 & $.108$ & $.387$ \\
+& Weighted CP & $.789$ & 2.70 & $.209$ & $.176$ \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-Paired seed deltas confirm hard-shift reliability gains: ACI vs static is $+19.6$pp coverage on shadow shift (95\% CI $[19.3,19.8]$) and $+11.2$pp on regime switch (95\% CI $[10.4,12.2]$). DACI further improves over static by $+20.8$pp (shadow) and $+13.6$pp (regime), and over ACI by $+1.1$pp and $+2.5$pp, with overhead increases of $+4.92$pp and $+5.57$pp, respectively.
+Paired seed deltas confirm hard-shift reliability gains: ACI vs static is $+19.5$pp coverage on shadow shift (95\% CI $[18.9,20.1]$) and $+11.1$pp on regime switch (95\% CI $[10.0,12.2]$). DACI further improves over static by $+20.7$pp (shadow) and $+13.6$pp (regime), and over ACI by $+1.1$pp and $+2.6$pp, with overhead increases of $+4.81$pp and $+6.01$pp, respectively.
 
 \subsection{Regime-Switch Stability}
 
@@ -173,7 +173,8 @@ In regime-switch streams, static and weighted thresholds lag after the phase bou
 \label{fig:aci-gamma}
 \end{figure}
 
-Figure~\ref{fig:aci-gamma} quantifies ACI sensitivity. In our regime-switch benchmark, small step sizes ($\gamma=0.002$--$0.005$) achieve the highest coverage ($\approx 89.6\%$) with moderate set inflation, while larger values ($\gamma=0.05$) reduce coverage to $87.3\%$ but lower overhead. This supports tuning $\gamma$ as a direct reliability-overhead control knob.
+Figure~\ref{fig:aci-gamma} quantifies ACI sensitivity. In our regime-switch benchmark, small step sizes ($\gamma=0.002$--$0.005$) achieve the highest coverage ($\approx 89.6\%$) with moderate set inflation, while larger values ($\gamma=0.05$) reduce coverage to $87.2\%$ but lower overhead. This supports tuning $\gamma$ as a direct reliability-overhead control knob.
+Triggered ACI has a second control knob. A regime-switch trigger-quantile sweep in Appendix Fig.~\ref{fig:trigger-quantile} shows quantile $0.5\rightarrow0.9$ improves coverage from $85.5\%$ to $88.3\%$ while overhead rises from $0.358$ to $0.409$.
 
 \subsection{Real-World Drift Results}
 
@@ -185,13 +186,13 @@ Figure~\ref{fig:aci-gamma} quantifies ACI sensitivity. In our regime-switch benc
 \toprule
 Method & Coverage & Avg Size \\
 \midrule
-Top-1 & $.309$ & 1.00 \\
-Top-3 & $.626$ & 3.00 \\
-Static CP & $.762$ & 4.71 \\
-ACI & $.878$ & 14.94 \\
-DACI & $\mathbf{.925}$ & 16.23 \\
-Triggered ACI & $.829$ & 10.26 \\
-Weighted CP & $.736$ & 4.34 \\
+Top-1 & $.307$ & 1.00 \\
+Top-3 & $.625$ & 3.00 \\
+Static CP & $.764$ & 4.69 \\
+ACI & $.879$ & 14.70 \\
+DACI & $\mathbf{.925}$ & 15.94 \\
+Triggered ACI & $.824$ & 10.15 \\
+Weighted CP & $.736$ & 4.22 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -199,11 +200,11 @@ Weighted CP & $.736$ & 4.34 \\
 \begin{figure}[t]
 \centering
 \includegraphics[width=\columnwidth]{figures/irish-shift-rolling-v6.pdf}
-\caption{Irish drift rolling coverage (window=200). ACI is most stable under source-target speed split.}
+\caption{Irish drift rolling coverage (window=200). DACI reaches highest reliability under source-target speed split.}
 \label{fig:irish-rolling}
 \end{figure}
 
-Trace-bootstrap on Irish confirms the reliability-cost pattern: ACI vs static gives $+11.5$pp coverage (95\% CI $[5.3,19.5]$) with $+10.23$ set size (95\% CI $[3.81,19.16]$). DACI vs static gives $+16.2$pp (95\% CI $[10.1,23.9]$) with $+11.52$ set size (95\% CI $[4.91,20.70]$), and DACI vs ACI adds $+4.7$pp coverage (95\% CI $[4.3,5.1]$) with $+1.30$ set size (95\% CI $[0.91,1.80]$). A speed-bin breakdown shows high-speed traces are hardest (static $68.5\%$, weighted $67.0\%$) while DACI is highest at $88.5\%$ (ACI $83.7\%$, triggered $78.5\%$).
+Trace-bootstrap on Irish confirms the reliability-cost pattern: ACI vs static gives $+11.6$pp coverage (95\% CI $[5.4,19.4]$) with $+10.02$ set size (95\% CI $[3.59,18.84]$). DACI vs static gives $+16.1$pp (95\% CI $[10.1,23.7]$) with $+11.26$ set size (95\% CI $[4.65,20.17]$), and DACI vs ACI adds $+4.6$pp coverage (95\% CI $[4.2,4.9]$) with $+1.24$ set size (95\% CI $[0.87,1.70]$). A speed-bin breakdown shows high-speed traces are hardest (static $68.9\%$, weighted $66.4\%$) while DACI is highest at $88.5\%$ (ACI $83.7\%$, triggered $77.7\%$).
 
 \section{Discussion}
 
@@ -215,10 +216,10 @@ Trace-bootstrap on Irish confirms the reliability-cost pattern: ACI vs static gi
 \toprule
 Overhead Cap & Shadow Shift & Regime Switch \\
 \midrule
-$\le .20$ & Static CP ($.692$) & Weighted CP ($.787$) \\
-$\le .40$ & Static CP ($.692$) & Triggered ACI ($.868$) \\
-$\le .60$ & Triggered ACI ($.843$) & DACI ($.917$) \\
-$\le .70$ & DACI ($.899$) & DACI ($.917$) \\
+$\le .20$ & Static CP ($.692$) & Weighted CP ($.789$) \\
+$\le .40$ & Static CP ($.692$) & Triggered ACI ($.869$) \\
+$\le .60$ & Triggered ACI ($.842$) & DACI ($.918$) \\
+$\le .70$ & DACI ($.899$) & DACI ($.918$) \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -258,6 +259,13 @@ Hard & $.898$ & 4.80 & $.903$ & 5.05 \\
 \bottomrule
 \end{tabular}
 \end{table}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{figures/trigger-quantile-ablation-v6.pdf}
+\caption{Regime-switch triggered-ACI tradeoff over confidence-gate quantile. Higher quantiles increase coverage and overhead.}
+\label{fig:trigger-quantile}
+\end{figure}
 
 Measured medium-scenario latency: calibration $0.08$ ms, CP set construction $1.59\,\mu$s/sample, NN inference $0.50\,\mu$s/sample.
 

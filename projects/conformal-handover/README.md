@@ -13,7 +13,9 @@ uv run python run-shift-reliability-v6.py \
   --n-traj 600 \
   --epochs 20 \
   --aci-gamma-grid 0.002,0.005,0.01,0.02,0.05 \
+  --trigger-quantile-grid 0.5,0.6,0.7,0.8,0.9 \
   --trigger-quantile 0.7 \
+  --irish-seed 42 \
   --budget-cap-usd 12 \
   --cost-soft-stop-usd 10.5 \
   --output-json figures/shift-results-v6.json
@@ -24,6 +26,7 @@ Run only Irish source-target speed drift:
 ```bash
 uv run python run-irish-shift-experiment.py \
   --max-files 50 \
+  --seed 42 \
   --output-json figures/irish-shift-results-v6.json
 ```
 
@@ -32,6 +35,7 @@ Main artifacts:
 - `figures/shift-coverage-v6.pdf`
 - `figures/regime-switch-rolling-v6.pdf`
 - `figures/aci-gamma-ablation-v6.pdf`
+- `figures/trigger-quantile-ablation-v6.pdf`
 - `figures/irish-shift-results-v6.json`
 - `figures/irish-shift-rolling-v6.pdf`
 - `figures/irish-speed-bins-v6.pdf`

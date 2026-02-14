@@ -1,6 +1,7 @@
 import argparse
 import json
 import os
+import random
 import subprocess
 import sys
 import time
@@ -67,6 +68,14 @@ def parse_env_file(path: Path) -> dict:
         k, v = line.split("=", 1)
         out[k.strip()] = v.strip().strip('"').strip("'")
     return out
+
+
+def set_global_seed(seed: int):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
 
 
 def rolling_mean(values: np.ndarray, window: int) -> np.ndarray:
@@ -503,6 +512,50 @@ def evaluate_aci_gamma_grid(target_data: dict, target_idx: np.ndarray, cache: di
     return out
 
 
+def evaluate_trigger_quantile_grid(
+    target_data: dict,
+    target_idx: np.ndarray,
+    cache: dict,
+    cal_scores: np.ndarray,
+    source_cal_probs: np.ndarray,
+    source_cal_labels: np.ndarray,
+    alpha: float,
+    gamma: float,
+    quantiles: list,
+    k_max: int,
+):
+    out = {}
+    probs = cache["probs"]
+    labels = cache["labels"]
+    top1_pred = cache["top1_pred"]
+    threshold = calibrate_threshold(source_cal_probs, source_cal_labels, alpha=alpha)
+    sets_static = predict_sets(probs, threshold)
+    order = cache["order"]
+    sets_aci, _ = build_aci_sets(probs, labels, order, cal_scores, alpha=alpha, gamma=gamma)
+    source_conf = np.max(source_cal_probs, axis=1)
+    target_conf = np.max(probs, axis=1)
+
+    for q in quantiles:
+        tau = float(np.quantile(source_conf, q))
+        sets_triggered = []
+        for i in range(len(labels)):
+            s = sets_aci[i] if target_conf[i] < tau else sets_static[i]
+            sets_triggered.append(s)
+        ev = evaluate_cp(sets_triggered, labels)
+        ho = simulate_handover_protocol(sets_triggered, labels, int(target_data["n_cells"]), k_max=k_max)
+        pp = ping_pong_rate_for_policy(target_data, target_idx, "cp_adaptive", ml_predictions=top1_pred, pred_sets=sets_triggered, k_max=k_max)
+        out[str(q)] = {
+            "coverage": float(ev["coverage"]),
+            "avg_set_size": float(ev["avg_set_size"]),
+            "ho_success": float(ho["ho_success"]),
+            "measurement_overhead": float(ho["measurement_overhead"]),
+            "rlf_proxy": float(ho["rlf_proxy"]),
+            "ping_pong_rate": float(pp),
+            "trigger_threshold": tau,
+        }
+    return out
+
+
 def render_aci_gamma_figure(gamma_agg: dict, figures_dir: Path, alpha: float):
     gammas = sorted([float(k) for k in gamma_agg.keys()])
     cov = [gamma_agg[str(g)]["coverage_mean"] for g in gammas]
@@ -530,6 +583,32 @@ def render_aci_gamma_figure(gamma_agg: dict, figures_dir: Path, alpha: float):
     plt.close(fig)
 
 
+def render_trigger_quantile_figure(trigger_agg: dict, figures_dir: Path, alpha: float):
+    quantiles = sorted([float(k) for k in trigger_agg.keys()])
+    cov = [trigger_agg[str(q)]["coverage_mean"] for q in quantiles]
+    cov_err = [trigger_agg[str(q)]["coverage_std"] for q in quantiles]
+    overhead = [trigger_agg[str(q)]["measurement_overhead_mean"] for q in quantiles]
+    overhead_err = [trigger_agg[str(q)]["measurement_overhead_std"] for q in quantiles]
+
+    fig, ax1 = plt.subplots(figsize=(8.5, 3.7))
+    ax1.errorbar(quantiles, cov, yerr=cov_err, marker="o", linewidth=1.8, capsize=2, label="coverage")
+    ax1.axhline(1 - alpha, color="red", linestyle="--", linewidth=1.2)
+    ax1.set_xlabel("Trigger quantile")
+    ax1.set_ylabel("Coverage")
+    ax1.set_ylim(0.80, 0.92)
+
+    ax2 = ax1.twinx()
+    ax2.errorbar(quantiles, overhead, yerr=overhead_err, marker="s", linewidth=1.6, capsize=2, color="black", label="overhead")
+    ax2.set_ylabel("Measurement overhead")
+    ax2.set_ylim(0.28, 0.46)
+
+    ax1.set_title("Regime-Switch Triggered-ACI Quantile Tradeoff")
+    fig.tight_layout()
+    fig.savefig(figures_dir / "trigger-quantile-ablation-v6.pdf", bbox_inches="tight")
+    fig.savefig(figures_dir / "trigger-quantile-ablation-v6.png", dpi=200, bbox_inches="tight")
+    plt.close(fig)
+
+
 def run_irish_shift_script(
     project_dir: Path,
     output_json: Path,
@@ -537,6 +616,7 @@ def run_irish_shift_script(
     daci_gamma_low: float,
     daci_gamma_high: float,
     daci_ema_beta: float,
+    seed: int,
 ):
     cmd = [
         sys.executable,
@@ -551,6 +631,8 @@ def run_irish_shift_script(
         str(daci_gamma_high),
         "--daci-ema-beta",
         str(daci_ema_beta),
+        "--seed",
+        str(seed),
     ]
     return subprocess.run(cmd, cwd=project_dir, check=True)
 
@@ -583,6 +665,8 @@ def main():
     parser.add_argument("--daci-ema-beta", type=float, default=0.95)
     parser.add_argument("--trigger-quantile", type=float, default=0.7)
     parser.add_argument("--aci-gamma-grid", type=str, default="0.002,0.005,0.01,0.02,0.05")
+    parser.add_argument("--trigger-quantile-grid", type=str, default="0.5,0.6,0.7,0.8,0.9")
+    parser.add_argument("--irish-seed", type=int, default=42)
     parser.add_argument("--k-max", type=int, default=5)
     parser.add_argument("--rolling-window", type=int, default=200)
     parser.add_argument("--device", choices=["cpu", "cuda"], default="cpu")
@@ -602,8 +686,14 @@ def main():
 
     seeds = [int(x.strip()) for x in args.seeds.split(",") if x.strip()]
     gamma_grid = parse_float_list(args.aci_gamma_grid)
+    trigger_quantile_grid = parse_float_list(args.trigger_quantile_grid)
     if args.trigger_quantile < 0.0 or args.trigger_quantile > 1.0:
         raise ValueError("--trigger-quantile must be in [0,1]")
+    if not trigger_quantile_grid:
+        raise ValueError("--trigger-quantile-grid must contain at least one value")
+    for q in trigger_quantile_grid:
+        if q < 0.0 or q > 1.0:
+            raise ValueError("--trigger-quantile-grid values must be in [0,1]")
     if args.daci_gamma_low <= 0.0 or args.daci_gamma_high <= 0.0:
         raise ValueError("--daci-gamma-low and --daci-gamma-high must be > 0")
     if args.daci_gamma_low > args.daci_gamma_high:
@@ -628,6 +718,8 @@ def main():
             "daci_gamma_high": args.daci_gamma_high,
             "daci_ema_beta": args.daci_ema_beta,
             "trigger_quantile": args.trigger_quantile,
+            "trigger_quantile_grid": trigger_quantile_grid,
+            "irish_seed": args.irish_seed,
             "k_max": args.k_max,
             "device": device,
             "budget_cap_usd": args.budget_cap_usd,
@@ -643,8 +735,10 @@ def main():
         aggregated = {s: {m: {} for m in METHOD_ORDER} for s in SHIFT_ORDER}
         regime_rolling_seed = {"static-cp": [], "aci": [], "daci": [], "weighted-cp": []}
         gamma_seed = {str(g): [] for g in gamma_grid}
+        trigger_seed = {str(q): [] for q in trigger_quantile_grid}
 
         for seed in seeds:
+            set_global_seed(seed)
             source_data = generate_shift_data(seed, args.n_traj, SHIFT_CONFIGS["iid"])
             train_idx, cal_idx, _ = split_by_trajectory(source_data["trajectory_id"], args.n_traj)
             source_idx = {"train": train_idx, "cal": cal_idx}
@@ -715,6 +809,26 @@ def main():
                             "measurement_overhead": gamma_out[str(g)]["measurement_overhead"],
                             "ping_pong_rate": gamma_out[str(g)]["ping_pong_rate"],
                         })
+                    trigger_out = evaluate_trigger_quantile_grid(
+                        target_data,
+                        target_idx,
+                        cache,
+                        source_cal_scores,
+                        source_cal_probs,
+                        source_cal_labels,
+                        args.alpha,
+                        args.gamma,
+                        trigger_quantile_grid,
+                        args.k_max,
+                    )
+                    for q in trigger_quantile_grid:
+                        trigger_seed[str(q)].append({
+                            "coverage": trigger_out[str(q)]["coverage"],
+                            "avg_set_size": trigger_out[str(q)]["avg_set_size"],
+                            "rlf_proxy": trigger_out[str(q)]["rlf_proxy"],
+                            "measurement_overhead": trigger_out[str(q)]["measurement_overhead"],
+                            "ping_pong_rate": trigger_out[str(q)]["ping_pong_rate"],
+                        })
 
             for shift in SHIFT_ORDER:
                 for method in METHOD_ORDER:
@@ -764,13 +878,20 @@ def main():
             key = str(g)
             gamma_agg[key] = aggregate_seed_metrics(gamma_seed[key])
 
+        trigger_agg = {}
+        for q in trigger_quantile_grid:
+            key = str(q)
+            trigger_agg[key] = aggregate_seed_metrics(trigger_seed[key])
+
         render_shift_figures(aggregated, rolling_out, figures_dir, args.alpha)
         render_aci_gamma_figure(gamma_agg, figures_dir, args.alpha)
+        render_trigger_quantile_figure(trigger_agg, figures_dir, args.alpha)
 
         payload["synthetic_shift"] = {
             "aggregated": aggregated,
             "regime_rolling": rolling_out,
             "aci_gamma_ablation": gamma_agg,
+            "trigger_quantile_ablation": trigger_agg,
             "paired_deltas": shift_delta,
         }
 
@@ -783,6 +904,7 @@ def main():
             args.daci_gamma_low,
             args.daci_gamma_high,
             args.daci_ema_beta,
+            args.irish_seed,
         )
         payload["irish_shift"] = json.loads(irish_path.read_text())
 

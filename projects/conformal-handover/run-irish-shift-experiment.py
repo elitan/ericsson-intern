@@ -1,10 +1,12 @@
 import argparse
 import json
+import random
 import subprocess
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
+import torch
 
 from run_irish_experiment import train_model, get_probs
 from src.handover.conformal import (
@@ -47,6 +49,14 @@ def rolling_mean(values: np.ndarray, window: int):
         return np.array([values.mean()])
     c = np.cumsum(np.insert(values.astype(float), 0, 0.0))
     return (c[window:] - c[:-window]) / window
+
+
+def set_global_seed(seed: int):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
 
 
 def topk_sets(probs: np.ndarray, k: int):
@@ -205,6 +215,7 @@ def main():
     parser.add_argument("--daci-ema-beta", type=float, default=0.95)
     parser.add_argument("--trigger-quantile", type=float, default=0.7)
     parser.add_argument("--rolling-window", type=int, default=200)
+    parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
     if args.trigger_quantile < 0.0 or args.trigger_quantile > 1.0:
         raise ValueError("--trigger-quantile must be in [0,1]")
@@ -214,6 +225,8 @@ def main():
         raise ValueError("--daci-gamma-low must be <= --daci-gamma-high")
     if args.daci_ema_beta < 0.0 or args.daci_ema_beta >= 1.0:
         raise ValueError("--daci-ema-beta must be in [0,1)")
+
+    set_global_seed(args.seed)
 
     project_dir = Path(__file__).resolve().parent
     figures_dir = project_dir / "figures"
@@ -240,7 +253,7 @@ def main():
     target_traces = [t for t, _ in trace_speed[half:]]
 
     source_traces = np.array(source_traces)
-    rng = np.random.default_rng(42)
+    rng = np.random.default_rng(args.seed)
     rng.shuffle(source_traces)
 
     split = int(0.7 * len(source_traces))
@@ -409,6 +422,7 @@ def main():
             "daci_gamma_high": args.daci_gamma_high,
             "daci_ema_beta": args.daci_ema_beta,
             "trigger_quantile": args.trigger_quantile,
+            "seed": args.seed,
             "max_files": args.max_files,
             "dataset_dir": str(data_dir),
             "n_cells": int(data["n_cells"]),

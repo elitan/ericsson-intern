@@ -1,0 +1,7 @@
+work_id,year,task,cp_formal_guarantee,distribution_shift_handling,real_trace_data,handover_target_prediction,summary
+cohen2022,2022,wireless classification and prediction,yes,no,partial,no,CP calibration for wireless tasks without handover decision focus
+deng2025,2025,beam selection,yes,limited,yes,no,CP reliability for beam selection not handover target control
+hegde2024,2024,beam selection,yes,limited,no,no,CP set prediction for beam decisions not mobility handover
+yajnanarayana2020,2020,handover with RL,no,no,yes,yes,Handover prediction/control without CP reliability guarantees
+lee2020,2020,prediction based conditional handover,no,no,yes,yes,ML handover logic without formal CP coverage guarantees
+this-work-v6,2026,handover target reliability under shift,yes,yes,yes,yes,Shift-focused CP reliability benchmark for handover with synthetic and Irish real-trace validation

@@ -20,26 +20,26 @@
 \maketitle
 
 \begin{abstract}
-ML handover prediction is accurate in-distribution but fragile under shift. We evaluate conformal prediction (CP) for 5G handover under synthetic and real-world drift. We compare static CP, Adaptive Conformal Inference (ACI), dynamic-step ACI (DACI), weighted CP, and a confidence-gated triggered ACI against Top-$k$ and a 3dB hysteresis baseline. On in-distribution synthetic data, static CP reaches $90.2\%$ coverage with set size $2.45$. Under speed and noise shifts, weighted CP reaches $91.1\%$ in the speed-shift case. Under severe shadow shift, static CP drops to $69.2\%$ while ACI restores $88.8\%$ and DACI reaches $89.9\%$ at higher overhead. In regime-switch streams, ACI stabilizes rolling coverage near the 90\% target, while DACI reaches $91.8\%$. ACI step-size sweep shows $\gamma=0.002$--$0.005$ gives the best reliability-overhead tradeoff in our setup. On Irish 5G driving traces with speed-split drift, static CP reaches $76.4\%$ coverage (size 4.69), weighted CP $73.6\%$ (size 4.22), ACI $87.9\%$ (size 14.7), and DACI $92.5\%$ (size 15.9). Results show reliability under shift needs adaptive conformal control, not static calibration alone.
+ML handover prediction is accurate in-distribution but fragile under shift. We evaluate conformal prediction (CP) for 5G handover under synthetic and real-world drift. We compare static CP, RAPS CP, Adaptive Conformal Inference (ACI), dynamic-step ACI (DACI), weighted CP, confidence-gated triggered ACI, and deep-ensemble CP against Top-$k$ and a 3dB hysteresis baseline. On in-distribution synthetic data, static CP reaches $90.2\%$ coverage. Under speed and noise shifts, RAPS reaches $95.7\%$ and $94.2\%$ coverage, while weighted CP reaches $91.1\%$ in speed shift. Under severe shadow shift, static CP drops to $69.2\%$, RAPS improves to $79.6\%$, ACI restores $88.8\%$, and DACI reaches $89.9\%$. In regime-switch streams, DACI reaches $91.8\%$. On Irish 5G traces with speed-split drift, static CP reaches $76.4\%$ coverage (95\% CI $[66.8,84.0]$), RAPS reaches $87.0\%$ (95\% CI $[77.2,94.2]$), and DACI reaches $92.5\%$ (95\% CI $[89.9,94.4]$). On Irish trace-holdout drift, DACI remains highest at $93.6\%$, while RAPS over-expands sets (size $70.3$). Results show robust reliability under shift needs adaptive conformal control with explicit overhead budgeting.
 \end{abstract}
 
 \section{Introduction}
 
 Predictive handover reduces latency but can fail badly when radio conditions shift. Traditional 3GPP handover logic relies on hysteresis events~\cite{3gpp38331,3gpp38214}. ML-based handover prediction improves point accuracy but provides no risk control when distribution changes~\cite{lee2020,yajnanarayana2020}. In production, that gap maps directly to radio link failure risk.
 
-Conformal prediction (CP) gives finite-sample marginal coverage guarantees~\cite{vovk2005,angelopoulos2021}. Recent wireless CP work focuses on demodulation, channel tasks, and beam selection~\cite{cohen2022,hegde2024,deng2025}, while handover under distribution shift is still underexplored. This paper targets that gap.
+Conformal prediction (CP) gives finite-sample marginal coverage guarantees~\cite{vovk2005,angelopoulos2021}. Recent wireless CP work focuses on demodulation, channel tasks, and beam selection~\cite{cohen2022,hegde2024,deng2025}, while handover under distribution shift is still underexplored. To our knowledge, prior wireless CP literature does not report a handover-focused sequential-shift reliability study with real-trace validation.
 
 \textbf{Contributions.}
 \begin{enumerate}
     \item We benchmark handover reliability under four synthetic shifts plus a regime-switch stream.
-    \item We compare static CP, ACI~\cite{gibbs2021}, dynamic-step ACI, weighted CP, and confidence-gated triggered ACI under the same base predictor and KPI mapping.
-    \item We validate on Irish 5G driving traces with source-target speed split.
+    \item We compare static CP, RAPS CP, ACI~\cite{gibbs2021}, dynamic-step ACI, weighted CP, confidence-gated triggered ACI, and deep-ensemble CP under the same base predictor and KPI mapping.
+    \item We validate on Irish 5G driving traces with two protocols: source-target speed split and trace-holdout split.
     \item We provide budget-aware reproducible runs (local-first, capped overflow policy) and release all generated artifacts.
 \end{enumerate}
 
 \section{Related Work}
 
-ML handover methods span supervised and reinforcement-learning policies~\cite{lee2020,yajnanarayana2020}. CP in wireless has shown value for calibration and reliability~\cite{cohen2022}. CP for beam selection shows strong reliability-efficiency tradeoffs~\cite{hegde2024,deng2025}. The missing piece is handover under shift: static calibration can fail as mobility, shadowing, and measurement noise drift over time.
+ML handover methods span supervised and reinforcement-learning policies~\cite{lee2020,yajnanarayana2020}. CP in wireless has shown value for calibration and reliability~\cite{cohen2022}. CP for beam selection shows strong reliability-efficiency tradeoffs~\cite{hegde2024,deng2025}. Appendix Table~\ref{tab:appendix-related-work} and the released matrix file (\texttt{figures/related-work-matrix-v6.csv}) summarize scope differences across task, guarantees, shift handling, and real-trace validation. The key missing piece is still handover reliability under sequential shift.
 
 \section{System and Methods}
 
@@ -61,13 +61,17 @@ We use an MLP classifier and softmax scores $\hat p(y\mid\mathbf{x})$.
 \end{equation}
 with $\hat q$ calibrated on held-out source calibration data.
 
+\textbf{RAPS CP:} regularized adaptive prediction sets using cumulative probability with rank penalty, calibrated on source and evaluated under shift.
+
 \textbf{ACI:} online update of effective miscoverage level to track sequential drift~\cite{gibbs2021}.
 
-\textbf{DACI:} dynamic-step ACI that switches between low/high update rates using an EMA of recent errors.
+\textbf{DACI:} dynamic-step ACI where the online step size switches between $(\gamma_{\text{low}},\gamma_{\text{high}})$ using an EMA of recent error indicators.
 
 \textbf{Weighted CP:} source calibration scores reweighted by estimated density ratio $w(\mathbf{x})\propto p_T(\mathbf{x})/p_S(\mathbf{x})$ using a source-vs-target logistic discriminator.
 
-\textbf{Triggered ACI:} confidence-gated mixture that uses static CP on high-confidence samples and ACI sets on low-confidence samples (threshold from source calibration confidence quantile).
+\textbf{Deep-ensemble CP:} mean predictive probabilities from 5 independently seeded predictors, then static CP calibration on ensemble probabilities.
+
+\textbf{Triggered ACI:} confidence-gated mixture that uses ACI sets when confidence is below a source-calibrated quantile threshold $\tau_q$, otherwise static CP.
 
 \subsection{System KPI Mapping}
 
@@ -88,11 +92,36 @@ Target shifts:
     \item Regime switch (source-like first half, harsh second half)
 \end{enumerate}
 
-Each result is mean$\pm$std across 5 seeds (42,123,456,789,1011), 600 trajectories/seed, 20 epochs.
+Each synthetic setting uses 5 seeds (42,123,456,789,1011), 600 trajectories/seed, and 20 training epochs. Main synthetic tables report means with 95\% CIs.
 
 \subsection{Real-World Drift Benchmark}
 
-Dataset: Irish 5G driving traces~\cite{irish5g}. We split traces by average speed: lower-speed traces as source, higher-speed traces as target. Model trains and calibrates on source only, then evaluates on target.
+Dataset: Irish 5G driving traces~\cite{irish5g}. Primary protocol uses source-target speed split: lower-speed 50\% traces as source and higher-speed 50\% traces as target, with source traces split 70/30 into train/cal. This gives 25 source and 25 target traces (36,238 train samples, 15,557 calibration, 30,398 target). Secondary protocol uses random trace-holdout (60/20/20 trace split): 40 source and 10 target traces (51,880 train, 17,957 calibration, 12,356 target). Model trains and calibrates on source only, then evaluates on target.
+
+\subsection{Default Settings and Split Sizes}
+
+\begin{table}[t]
+\caption{Key Defaults for Reproducibility}
+\label{tab:defaults}
+\centering
+\scriptsize
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{ll}
+\toprule
+Setting & Value \\
+\midrule
+Miscoverage target $\alpha$ & 0.10 \\
+Synthetic seeds & 42, 123, 456, 789, 1011 \\
+RAPS defaults & $k_{reg}=1$, $\lambda=0.01$ \\
+DACI defaults & $\gamma_{low}=0.005$, $\gamma_{high}=0.02$, $\beta=0.95$ \\
+Triggered-ACI default & confidence quantile $q=0.7$ \\
+Deep-ensemble size & 5 members \\
+Irish speed-split traces & source 25, target 25 \\
+Irish trace-holdout traces & source 40, target 10 \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
 
 \section{Results}
 
@@ -101,57 +130,67 @@ Dataset: Irish 5G driving traces~\cite{irish5g}. We split traces by average spee
 \begin{figure}[t]
 \centering
 \includegraphics[width=\columnwidth]{figures/shift-coverage-v6.pdf}
-\caption{Coverage across synthetic shifts. Static CP degrades under hard shift, ACI is most robust, weighted CP helps in moderate covariate shift.}
+\caption{Coverage across synthetic shifts. Static CP degrades under hard shift, RAPS improves moderate-to-hard shifts, and adaptive variants recover near-target reliability.}
 \label{fig:shift-coverage}
 \end{figure}
 
 \begin{table}[t]
-\caption{Synthetic Shift Coverage (mean $\pm$ std)}
+\caption{Synthetic Shift Coverage (mean with 95\% CI)}
 \label{tab:shift-coverage}
 \centering
+\small
+\resizebox{\columnwidth}{!}{%
 \begin{tabular}{lccccc}
 \toprule
-Shift & 3dB & Top-1 & Top-3 & Static CP & ACI \\
+Shift & Top-1 & Static CP & RAPS CP & ACI & DACI \\
 \midrule
-IID & $.64\pm.02$ & $.68\pm.02$ & $.91\pm.01$ & $.90\pm.01$ & $.90\pm.00$ \\
-Speed & $.62\pm.01$ & $.65\pm.02$ & $.90\pm.01$ & $.90\pm.01$ & $.90\pm.00$ \\
-MeasNoise & $.55\pm.02$ & $.64\pm.02$ & $.89\pm.01$ & $.88\pm.01$ & $.90\pm.00$ \\
-Shadow & $.40\pm.01$ & $.43\pm.01$ & $.72\pm.01$ & $.69\pm.01$ & $.89\pm.00$ \\
-Regime & $.49\pm.02$ & $.53\pm.02$ & $.79\pm.01$ & $.78\pm.02$ & $.89\pm.00$ \\
+IID & $.677\,[.658,.696]$ & $.902\,[.894,.910]$ & $.958\,[.953,.962]$ & $.900\,[.900,.900]$ & $.944\,[.944,.945]$ \\
+Speed & $.652\,[.640,.665]$ & $.897\,[.886,.908]$ & $.957\,[.951,.962]$ & $.900\,[.900,.901]$ & $.944\,[.944,.945]$ \\
+MeasNoise & $.637\,[.621,.652]$ & $.880\,[.872,.888]$ & $.942\,[.940,.944]$ & $.900\,[.899,.900]$ & $.944\,[.943,.944]$ \\
+Shadow & $.436\,[.427,.444]$ & $.692\,[.686,.699]$ & $.796\,[.788,.803]$ & $.888\,[.885,.890]$ & $.899\,[.894,.904]$ \\
+Regime & $.531\,[.512,.550]$ & $.781\,[.767,.796]$ & $.863\,[.854,.872]$ & $.892\,[.891,.893]$ & $.918\,[.915,.920]$ \\
 \bottomrule
 \end{tabular}
+}
 \end{table}
 
-Table~\ref{tab:shift-coverage} shows the main trend: static CP is reliable near source but degrades under strong shift (shadow, regime). ACI keeps coverage close to target by expanding sets online.
+Table~\ref{tab:shift-coverage} shows the main trend: static CP is reliable near source but degrades under strong shift (shadow, regime). RAPS gives clear gains over static under shift, and ACI/DACI keep coverage near target by expanding sets online.
 
 \subsection{Tradeoff in Hard Shifts}
 
 \begin{table}[t]
-\caption{Hard-Shift KPI Tradeoff (mean over 5 seeds)}
+\caption{Hard-Shift Reliability with Uncertainty (mean over 5 seeds)}
 \label{tab:hard-shift-kpi}
 \centering
-\begin{tabular}{llcccc}
+\small
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{llccc}
 \toprule
-Shift & Method & Coverage & Set Size & RLF Proxy & Overhead \\
+Shift & Method & Coverage (95\% CI) & Avg Size & Overhead \\
 \midrule
-\multirow{5}{*}{Shadow}
-& Static CP & $.692$ & 2.62 & $.306$ & $.170$ \\
-& ACI & $\mathbf{.888}$ & 5.98 & $\mathbf{.072}$ & $.601$ \\
-& DACI & $\mathbf{.899}$ & 6.35 & $\mathbf{.058}$ & $.650$ \\
-& Triggered ACI & $.842$ & 5.38 & $.122$ & $.541$ \\
-& Weighted CP & $.691$ & 2.61 & $.306$ & $.169$ \\
+\multirow{7}{*}{Shadow}
+& Static CP & $.692\,[.686,.699]$ & 2.62 & $.170$ \\
+& RAPS CP & $.796\,[.788,.803]$ & 3.94 & $.314$ \\
+& ACI & $.888\,[.885,.890]$ & 5.98 & $.601$ \\
+& DACI & $\mathbf{.899}\,[.894,.904]$ & 6.35 & $.650$ \\
+& Triggered ACI & $.842\,[.839,.844]$ & 5.38 & $.541$ \\
+& Weighted CP & $.691\,[.684,.698]$ & 2.61 & $.169$ \\
+& Ensemble CP & $.693\,[.687,.699]$ & 2.61 & $.168$ \\
 \midrule
-\multirow{5}{*}{Regime}
-& Static CP & $.781$ & 2.61 & $.217$ & $.168$ \\
-& ACI & $\mathbf{.892}$ & 4.50 & $\mathbf{.083}$ & $.417$ \\
-& DACI & $\mathbf{.918}$ & 5.04 & $\mathbf{.056}$ & $.477$ \\
-& Triggered ACI & $.869$ & 4.22 & $.108$ & $.387$ \\
-& Weighted CP & $.789$ & 2.70 & $.209$ & $.176$ \\
+\multirow{7}{*}{Regime}
+& Static CP & $.781\,[.767,.796]$ & 2.61 & $.168$ \\
+& RAPS CP & $.863\,[.854,.872]$ & 3.95 & $.307$ \\
+& ACI & $.892\,[.891,.893]$ & 4.50 & $.417$ \\
+& DACI & $\mathbf{.918}\,[.915,.920]$ & 5.04 & $.477$ \\
+& Triggered ACI & $.869\,[.865,.874]$ & 4.22 & $.387$ \\
+& Weighted CP & $.789\,[.778,.799]$ & 2.70 & $.176$ \\
+& Ensemble CP & $.784\,[.771,.797]$ & 2.60 & $.167$ \\
 \bottomrule
 \end{tabular}
+}
 \end{table}
 
-Paired seed deltas confirm hard-shift reliability gains: ACI vs static is $+19.5$pp coverage on shadow shift (95\% CI $[18.9,20.1]$) and $+11.1$pp on regime switch (95\% CI $[10.0,12.2]$). DACI further improves over static by $+20.7$pp (shadow) and $+13.6$pp (regime), and over ACI by $+1.1$pp and $+2.6$pp, with overhead increases of $+4.81$pp and $+6.01$pp, respectively.
+Paired seed deltas confirm hard-shift gains with uncertainty: RAPS vs static gives $+10.3$pp coverage on shadow (95\% CI $[9.7,10.9]$) and $+8.1$pp on regime (95\% CI $[7.6,8.6]$). ACI vs static gives $+19.5$pp and $+11.1$pp. DACI vs static gives $+20.7$pp and $+13.6$pp, and DACI vs ACI adds $+1.1$pp and $+2.6$pp. Ensemble CP is statistically close to static CP on hard shifts ($+0.1$pp shadow, $+0.2$pp regime). These paired CIs are estimated from 5-seed draws and should be read as finite-sample stability indicators.
 
 \subsection{Regime-Switch Stability}
 
@@ -162,7 +201,7 @@ Paired seed deltas confirm hard-shift reliability gains: ACI vs static is $+19.5
 \label{fig:regime-rolling}
 \end{figure}
 
-In regime-switch streams, static and weighted thresholds lag after the phase boundary. ACI adapts online and recovers target-level coverage.
+In regime-switch streams, static and weighted thresholds lag after the phase boundary. RAPS improves over static but still lags adaptive variants after abrupt transitions. ACI and DACI recover target-level coverage.
 
 \subsection{ACI Step-Size Sensitivity}
 
@@ -175,6 +214,8 @@ In regime-switch streams, static and weighted thresholds lag after the phase bou
 
 Figure~\ref{fig:aci-gamma} quantifies ACI sensitivity. In our regime-switch benchmark, small step sizes ($\gamma=0.002$--$0.005$) achieve the highest coverage ($\approx 89.6\%$) with moderate set inflation, while larger values ($\gamma=0.05$) reduce coverage to $87.2\%$ but lower overhead. This supports tuning $\gamma$ as a direct reliability-overhead control knob.
 Triggered ACI has a second control knob. A regime-switch trigger-quantile sweep in Appendix Fig.~\ref{fig:trigger-quantile} shows quantile $0.5\rightarrow0.9$ improves coverage from $85.5\%$ to $88.3\%$ while overhead rises from $0.358$ to $0.409$.
+DACI hyperparameter sweeps over $(\gamma_{low},\gamma_{high},\beta)$ in Appendix Fig.~\ref{fig:daci-robustness} show a broad reliability-overhead frontier: low-step/high-reactivity settings reach up to $95.0\%$ coverage in regime shift, while low-overhead settings stay near ACI coverage with smaller inflation.
+Conditional diagnostics in Appendix Fig.~\ref{fig:conditional-speed} and Fig.~\ref{fig:conditional-confidence} show clear heterogeneity across speed and confidence deciles. On regime-switch speed deciles, worst-decile coverage rises from $65.8\%$ (static) to $77.0\%$ (RAPS), $88.2\%$ (ACI), and $89.0\%$ (DACI). On confidence deciles, worst-decile coverage rises from $74.0\%$ (static) to $82.8\%$ (RAPS) and $91.0\%$ (DACI).
 
 \subsection{Real-World Drift Results}
 
@@ -182,20 +223,27 @@ Triggered ACI has a second control knob. A regime-switch trigger-quantile sweep 
 \caption{Irish 5G Speed-Split Drift Results}
 \label{tab:irish-shift}
 \centering
-\begin{tabular}{lcc}
+\small
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{lccc}
 \toprule
-Method & Coverage & Avg Size \\
+Method & Coverage (95\% CI) & Avg Size (95\% CI) & Size/133 \\
 \midrule
-Top-1 & $.307$ & 1.00 \\
-Top-3 & $.625$ & 3.00 \\
-Static CP & $.764$ & 4.69 \\
-ACI & $.879$ & 14.70 \\
-DACI & $\mathbf{.925}$ & 15.94 \\
-Triggered ACI & $.824$ & 10.15 \\
-Weighted CP & $.736$ & 4.22 \\
+Top-1 & $.307\,[.235,.379]$ & $1.00\,[1.00,1.00]$ & $.008$ \\
+Top-3 & $.625\,[.527,.710]$ & $3.00\,[3.00,3.00]$ & $.023$ \\
+Static CP & $.764\,[.668,.840]$ & $4.69\,[4.45,4.88]$ & $.035$ \\
+RAPS CP & $.869\,[.772,.942]$ & $6.63\,[6.43,6.89]$ & $.050$ \\
+Weighted CP & $.736\,[.637,.816]$ & $4.22\,[4.00,4.39]$ & $.032$ \\
+Ensemble CP & $.764\,[.667,.841]$ & $4.59\,[4.34,4.79]$ & $.035$ \\
+Triggered ACI & $.824\,[.762,.872]$ & $10.15\,[6.23,15.91]$ & $.076$ \\
+ACI & $.879\,[.856,.896]$ & $14.70\,[8.37,23.44]$ & $.111$ \\
+DACI & $\mathbf{.925}\,[.899,.944]$ & $15.94\,[9.42,24.87]$ & $.120$ \\
 \bottomrule
 \end{tabular}
+}
 \end{table}
+
+\textit{Size/133} is a normalized overhead proxy (average predicted set size divided by the 133 candidate cells in this dataset).
 
 \begin{figure}[t]
 \centering
@@ -204,36 +252,72 @@ Weighted CP & $.736$ & 4.22 \\
 \label{fig:irish-rolling}
 \end{figure}
 
-Trace-bootstrap on Irish confirms the reliability-cost pattern: ACI vs static gives $+11.6$pp coverage (95\% CI $[5.4,19.4]$) with $+10.02$ set size (95\% CI $[3.59,18.84]$). DACI vs static gives $+16.1$pp (95\% CI $[10.1,23.7]$) with $+11.26$ set size (95\% CI $[4.65,20.17]$), and DACI vs ACI adds $+4.6$pp coverage (95\% CI $[4.2,4.9]$) with $+1.24$ set size (95\% CI $[0.87,1.70]$). A speed-bin breakdown shows high-speed traces are hardest (static $68.9\%$, weighted $66.4\%$) while DACI is highest at $88.5\%$ (ACI $83.7\%$, triggered $77.7\%$).
+Trace-bootstrap on Irish speed-split confirms the reliability-cost pattern: RAPS vs static gives $+10.6$pp coverage (95\% CI $[6.1,15.8]$) with $+1.94$ set size (95\% CI $[1.65,2.30]$). ACI vs static gives $+11.6$pp (95\% CI $[5.4,19.4]$) with $+10.02$ set size (95\% CI $[3.59,18.84]$). DACI vs static gives $+16.1$pp (95\% CI $[10.1,23.7]$) with $+11.26$ set size (95\% CI $[4.65,20.17]$), and DACI vs ACI adds $+4.6$pp coverage (95\% CI $[4.2,4.9]$) with $+1.24$ set size (95\% CI $[0.87,1.70]$). Ensemble CP vs static stays flat in coverage ($+0.0$pp, 95\% CI $[-0.3,0.3]$) with slightly smaller sets ($-0.10$, 95\% CI $[-0.14,-0.06]$).
+Appendix Fig.~\ref{fig:ensemble-vs-cp} compares ensemble CP against static and adaptive CP on shadow, regime, and Irish drift in one KPI view.
+
+\subsection{Irish Trace-Holdout Stress Split}
+
+\begin{table}[t]
+\caption{Irish 5G Trace-Holdout Drift Results}
+\label{tab:irish-trace-holdout}
+\centering
+\small
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{lccc}
+\toprule
+Method & Coverage (95\% CI) & Avg Size (95\% CI) & Size/133 \\
+\midrule
+Top-1 & $.153\,[.077,.226]$ & $1.00\,[1.00,1.00]$ & $.008$ \\
+Top-3 & $.661\,[.521,.802]$ & $3.00\,[3.00,3.00]$ & $.023$ \\
+Static CP & $.896\,[.782,.973]$ & $16.07\,[10.44,22.97]$ & $.121$ \\
+RAPS CP & $.882\,[.752,.969]$ & $70.34\,[70.19,70.49]$ & $.529$ \\
+Weighted CP & $.889\,[.769,.970]$ & $15.07\,[10.00,21.25]$ & $.113$ \\
+Ensemble CP & $.899\,[.783,.975]$ & $16.66\,[10.85,23.88]$ & $.125$ \\
+Triggered ACI & $.909\,[.825,.961]$ & $16.43\,[8.98,26.08]$ & $.124$ \\
+ACI & $.889\,[.862,.904]$ & $16.44\,[7.17,29.14]$ & $.124$ \\
+DACI & $\mathbf{.936}\,[.905,.953]$ & $17.90\,[8.17,30.80]$ & $.135$ \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
+Trace-holdout is a stronger shift stress test. Here, RAPS vs static is negative in coverage ($-1.4$pp, 95\% CI $[-3.1,-0.2]$) and very costly in set size ($+54.27$, 95\% CI $[47.51,59.77]$). This pattern is consistent with stronger support mismatch between source calibration and target traces, where RAPS rank-penalty regularization can over-expand sets. DACI remains strongest in coverage, but with higher overhead than static/weighted methods.
 
 \section{Discussion}
 
 \begin{table}[t]
-\caption{Best Method Under Overhead Caps (Synthetic Hard Shifts)}
+\caption{Measured Deployment Policy Under Overhead Caps (Synthetic Hard Shifts)}
 \label{tab:overhead-caps}
 \centering
+\scriptsize
+\resizebox{\columnwidth}{!}{%
 \begin{tabular}{lcc}
 \toprule
-Overhead Cap & Shadow Shift & Regime Switch \\
+Budget Tier & Shadow Shift & Regime Switch \\
 \midrule
-$\le .20$ & Static CP ($.692$) & Weighted CP ($.789$) \\
-$\le .40$ & Static CP ($.692$) & Triggered ACI ($.869$) \\
-$\le .60$ & Triggered ACI ($.842$) & DACI ($.918$) \\
-$\le .70$ & DACI ($.899$) & DACI ($.918$) \\
+Low ($\le .20$) & Ensemble CP $.693\,[.687,.699]$ ($.168$) & Weighted CP $.789\,[.778,.799]$ ($.176$) \\
+Medium ($\le .40$) & RAPS CP $.796\,[.788,.803]$ ($.314$) & Triggered ACI $.869\,[.865,.874]$ ($.387$) \\
+High ($\le .60$) & Triggered ACI $.842\,[.839,.844]$ ($.541$) & DACI $.918\,[.915,.920]$ ($.477$) \\
+Max ($\le .70$) & DACI $.899\,[.894,.904]$ ($.650$) & DACI $.918\,[.915,.920]$ ($.477$) \\
 \bottomrule
 \end{tabular}
+}
 \end{table}
 
-\textbf{When to use which method.} Static CP is a strong default in stable conditions. Weighted CP helps moderate covariate shift when target feature support overlaps source. Triggered ACI is a middle point when overhead budget is tight. ACI is robust for severe sequential drift. DACI is the max-reliability mode when higher overhead is acceptable.
+\textbf{When to use which method.} Static or weighted CP is a low-overhead default for stable or mild shift. RAPS is a useful medium-budget upgrade when covariate shift is present and support overlap is still good. Triggered ACI is a practical middle point. ACI is robust for severe sequential drift. DACI is the max-reliability mode when overhead budget can absorb larger sets.
 
-\textbf{System implications.} Reliability gains translate to lower RLF proxy but require explicit overhead budgeting. Table~\ref{tab:overhead-caps} gives a simple control policy: low-budget mode prefers static or weighted CP, medium-budget mode uses triggered ACI, high-budget mode uses ACI, and max-reliability mode uses DACI.
-A coverage-overhead Pareto view in Appendix Fig.~\ref{fig:hard-shift-pareto} shows triggered ACI and DACI both lie on the frontier for hard shifts, while static and weighted CP dominate low-overhead points.
+\textbf{System implications.} Reliability gains translate to lower RLF proxy but require explicit overhead budgeting. Table~\ref{tab:overhead-caps} is measured from hard-shift runs and gives a direct policy map by overhead cap. The Irish trace-holdout stress split adds one warning: RAPS can over-expand sets under stronger support mismatch, so adaptive methods are safer for that regime.
+A coverage-overhead Pareto view in Appendix Fig.~\ref{fig:hard-shift-pareto} shows triggered ACI and DACI both lie on the frontier for hard shifts, while static and weighted CP dominate low-overhead points. This policy table is synthetic-calibrated; deployment should re-tune thresholds and method switching on operator-specific traces before use.
 
-\textbf{Limitations.} Synthetic channels still simplify real deployments. Irish traces have limited feature richness versus full network measurement reports. We evaluate offline; online deployment requires streaming integration and control-plane constraints.
+\subsection{Threats to Validity}
+\textbf{Synthetic realism.} Our synthetic channels capture controlled shift modes but simplify full multi-cell interference and scheduler behavior.
+\textbf{Irish feature scope.} Irish traces provide mobility and radio context, but not the full feature richness of operator measurement reports.
+\textbf{Split sensitivity.} Trace-holdout behaves differently from speed-split and exposes failure modes (for example RAPS set-size inflation), so deployment should validate split protocol assumptions.
+\textbf{Offline-online gap.} Results are offline replay; deployment needs online streaming integration, policy latency controls, and control-plane safety checks.
 
 \section{Conclusion}
 
-We presented a shift-focused handover reliability study with conformal prediction. Static CP works well in-distribution but degrades in severe shift. ACI restores near-target coverage under shadow and regime-switch drift. DACI pushes reliability further in hard shifts and on Irish traces, with additional overhead. Weighted CP improves moderate shifts with smaller set inflation than adaptive variants. A confidence-gated triggered ACI recovers a strong middle tradeoff. The core practical result is clear: robust handover reliability needs adaptive conformal control, not static calibration alone.
+We presented a shift-focused handover reliability study with conformal prediction. Static CP works well in-distribution but degrades in severe shift. RAPS improves over static in many synthetic and Irish speed-split settings, but fails under stronger trace-holdout mismatch due to large set inflation. ACI restores near-target coverage under shadow and regime-switch drift. DACI pushes reliability further in hard shifts and Irish splits, with additional overhead. Weighted CP improves moderate shifts with small inflation. Triggered ACI gives a practical middle tradeoff. The core practical result is clear: robust handover reliability needs adaptive conformal control plus explicit budget-aware policy selection.
 
 \appendices
 \setcounter{table}{0}
@@ -242,23 +326,42 @@ We presented a shift-focused handover reliability study with conformal predictio
 \setcounter{figure}{0}
 \renewcommand{\thefigure}{A\arabic{figure}}
 \renewcommand{\theHfigure}{A\arabic{figure}}
-\section{Appendix: Ensemble and Latency}
+\section{Appendix: Related Work, Diagnostics, Ensemble and Latency}
 
 \begin{table}[t]
-\caption{Appendix: CP vs Ensemble (from v5 runs, 5 seeds)}
-\label{tab:appendix-ensemble}
+\caption{Related-Work Evidence Matrix}
+\label{tab:appendix-related-work}
 \centering
 \begin{tabular}{lcccc}
 \toprule
-& \multicolumn{2}{c}{CP (1 model)} & \multicolumn{2}{c}{Ensemble (5 models)} \\
-\cmidrule(lr){2-3} \cmidrule(lr){4-5}
-Scenario & Coverage & Size & Coverage & Size \\
+Work & CP & Shift & Real & Handover \\
 \midrule
-Easy & $.900$ & 1.37 & $.900$ & 1.38 \\
-Medium & $.893$ & 2.47 & $.898$ & 2.57 \\
-Hard & $.898$ & 4.80 & $.903$ & 5.05 \\
+Lee~\cite{lee2020} & No & No & Yes & Yes \\
+Yajnanarayana~\cite{yajnanarayana2020} & No & No & Yes & Yes \\
+Cohen~\cite{cohen2022} & Yes & No & Partial & No \\
+Hegde~\cite{hegde2024} & Yes & Limited & No & No \\
+Deng~\cite{deng2025} & Yes & Limited & Yes & No \\
+This work & Yes & Yes & Yes & Yes \\
 \bottomrule
 \end{tabular}
+\end{table}
+
+\begin{table}[t]
+\caption{Appendix: Static vs RAPS vs Ensemble (v6)}
+\label{tab:appendix-ensemble}
+\centering
+\small
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{lccc}
+\toprule
+Scenario & Static CP & RAPS CP & Ensemble CP \\
+\midrule
+Shadow (synthetic) & $.692\,[.686,.699]$ & $.796\,[.788,.803]$ & $.693\,[.687,.699]$ \\
+Regime (synthetic) & $.781\,[.767,.796]$ & $.863\,[.854,.872]$ & $.784\,[.771,.797]$ \\
+Irish (speed-split) & $.764\,[.668,.840]$ & $.869\,[.772,.942]$ & $.764\,[.667,.841]$ \\
+\bottomrule
+\end{tabular}
+}
 \end{table}
 
 \begin{figure}[t]
@@ -266,6 +369,34 @@ Hard & $.898$ & 4.80 & $.903$ & 5.05 \\
 \includegraphics[width=\columnwidth]{figures/trigger-quantile-ablation-v6.pdf}
 \caption{Regime-switch triggered-ACI tradeoff over confidence-gate quantile. Higher quantiles increase coverage and overhead.}
 \label{fig:trigger-quantile}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{figures/daci-robustness-v6.pdf}
+\caption{DACI robustness grid on shadow and regime shifts. Each point is one $(\gamma_{low},\gamma_{high},\beta)$ setting.}
+\label{fig:daci-robustness}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{figures/conditional-coverage-speed-v6.pdf}
+\caption{Synthetic regime-switch coverage by speed decile across methods.}
+\label{fig:conditional-speed}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{figures/conditional-coverage-confidence-v6.pdf}
+\caption{Synthetic regime-switch coverage by confidence decile across methods.}
+\label{fig:conditional-confidence}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{figures/ensemble-vs-cp-v6.pdf}
+\caption{Comparator view: ensemble CP vs static and adaptive CP across shadow, regime, and Irish drift.}
+\label{fig:ensemble-vs-cp}
 \end{figure}
 
 \begin{figure}[t]

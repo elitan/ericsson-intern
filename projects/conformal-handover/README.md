@@ -34,6 +34,7 @@ Main artifacts:
 - `figures/aci-gamma-ablation-v6.pdf`
 - `figures/irish-shift-results-v6.json`
 - `figures/irish-shift-rolling-v6.pdf`
+- `figures/irish-speed-bins-v6.pdf`
 
 ## Research Gap
 

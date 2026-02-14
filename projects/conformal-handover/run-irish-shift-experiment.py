@@ -139,6 +139,28 @@ def trace_bootstrap_delta_ci(trace_ids: np.ndarray, cover_a: np.ndarray, cover_b
     }
 
 
+def speed_bin_summary(speeds: np.ndarray, method_cover: dict, method_size: dict):
+    q = np.quantile(speeds, [0.33, 0.66])
+    bins = {
+        "low": np.where(speeds < q[0])[0],
+        "mid": np.where((speeds >= q[0]) & (speeds < q[1]))[0],
+        "high": np.where(speeds >= q[1])[0],
+    }
+    out = {
+        "cuts": {"q33": float(q[0]), "q66": float(q[1])},
+        "bins": {},
+    }
+    for b, idx in bins.items():
+        out["bins"][b] = {}
+        for m in method_cover.keys():
+            out["bins"][b][m] = {
+                "n": int(len(idx)),
+                "coverage": float(np.mean(method_cover[m][idx])) if len(idx) else float("nan"),
+                "avg_set_size": float(np.mean(method_size[m][idx])) if len(idx) else float("nan"),
+            }
+    return out
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--output-json", type=str, default="figures/irish-shift-results-v6.json")
@@ -242,6 +264,7 @@ def main():
     bootstrap = {}
     for name in method_sets:
         bootstrap[name] = trace_bootstrap_ci(target_trace_ids, method_cover[name], method_size[name])
+    speed_bins = speed_bin_summary(speed_col[target_idx], method_cover, method_size)
     paired_deltas = {
         "aci_minus_static": trace_bootstrap_delta_ci(
             target_trace_ids,
@@ -291,6 +314,24 @@ def main():
     fig.savefig(figures_dir / "irish-shift-rolling-v6.pdf", bbox_inches="tight")
     fig.savefig(figures_dir / "irish-shift-rolling-v6.png", dpi=200, bbox_inches="tight")
     plt.close(fig)
+    fig, ax = plt.subplots(figsize=(8.5, 3.7))
+    labels = ["low", "mid", "high"]
+    x = np.arange(len(labels))
+    width = 0.18
+    for i, method in enumerate(["static-cp", "aci", "triggered-aci", "weighted-cp"]):
+        y = [speed_bins["bins"][b][method]["coverage"] for b in labels]
+        ax.bar(x + (i - 1.5) * width, y, width, label=method)
+    ax.axhline(1 - args.alpha, color="red", linestyle="--", linewidth=1.2)
+    ax.set_xticks(x)
+    ax.set_xticklabels(["Low", "Mid", "High"])
+    ax.set_ylabel("Coverage")
+    ax.set_ylim(0.45, 1.02)
+    ax.set_title("Irish Target Coverage by Speed Bin")
+    ax.legend(loc="lower left", ncol=2)
+    fig.tight_layout()
+    fig.savefig(figures_dir / "irish-speed-bins-v6.pdf", bbox_inches="tight")
+    fig.savefig(figures_dir / "irish-speed-bins-v6.png", dpi=200, bbox_inches="tight")
+    plt.close(fig)
 
     result = {
         "metadata": {
@@ -318,6 +359,7 @@ def main():
             "weighted-cp": summarize_sets("weighted-cp", sets_weighted, target_labels),
         },
         "bootstrap_ci": bootstrap,
+        "speed_bins": speed_bins,
         "paired_deltas": paired_deltas,
         "rolling": rolling,
     }

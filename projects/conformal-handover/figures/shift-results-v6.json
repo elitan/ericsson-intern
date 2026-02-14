@@ -1,6 +1,6 @@
 {
   "metadata": {
-    "created_at_unix": 1771071044,
+    "created_at_unix": 1771071392,
     "mode": "all",
     "seeds": [
       42,
@@ -199508,7 +199508,7 @@
     "spent_usd": 0.0,
     "budget_cap_usd": 12.0,
     "cost_soft_stop_usd": 10.5,
-    "elapsed_seconds": 123.64042901992798,
+    "elapsed_seconds": 126.3928542137146,
     "overflow": {
       "enabled": false,
       "attempted": false,

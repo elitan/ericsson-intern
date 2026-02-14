@@ -36,6 +36,7 @@ Main artifacts:
 - `figures/regime-switch-rolling-v6.pdf`
 - `figures/aci-gamma-ablation-v6.pdf`
 - `figures/trigger-quantile-ablation-v6.pdf`
+- `figures/hard-shift-pareto-v6.pdf`
 - `figures/irish-shift-results-v6.json`
 - `figures/irish-shift-rolling-v6.pdf`
 - `figures/irish-speed-bins-v6.pdf`

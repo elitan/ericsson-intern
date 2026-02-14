@@ -68,3 +68,17 @@ def test_metric_sanity_ranges():
     assert shadow["aci"]["coverage_mean"] >= shadow["static-cp"]["coverage_mean"]
     assert regime["aci"]["coverage_mean"] >= regime["static-cp"]["coverage_mean"]
     assert irish["results"]["aci"]["coverage"] >= irish["results"]["static-cp"]["coverage"]
+
+
+def test_expected_figures_exist():
+    required = [
+        "shift-coverage-v6.pdf",
+        "regime-switch-rolling-v6.pdf",
+        "aci-gamma-ablation-v6.pdf",
+        "trigger-quantile-ablation-v6.pdf",
+        "hard-shift-pareto-v6.pdf",
+        "irish-shift-rolling-v6.pdf",
+        "irish-speed-bins-v6.pdf",
+    ]
+    for name in required:
+        assert (FIGURES_DIR / name).exists(), name

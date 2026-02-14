@@ -609,6 +609,55 @@ def render_trigger_quantile_figure(trigger_agg: dict, figures_dir: Path, alpha: 
     plt.close(fig)
 
 
+def render_hard_shift_pareto(aggregated: dict, figures_dir: Path):
+    method_order = ["static-cp", "weighted-cp", "triggered-aci", "aci", "daci"]
+    shifts = ["shadow-shift", "regime-switch"]
+    label_map = {
+        "static-cp": "static",
+        "weighted-cp": "weighted",
+        "triggered-aci": "triggered",
+        "aci": "aci",
+        "daci": "daci",
+    }
+
+    fig, axes = plt.subplots(1, 2, figsize=(8.5, 3.7))
+    for ax, shift in zip(axes, shifts):
+        pts = []
+        for method in method_order:
+            vals = aggregated[shift][method]
+            x = vals["measurement_overhead_mean"]
+            y = vals["coverage_mean"]
+            pts.append((method, x, y))
+            ax.scatter(x, y, s=35)
+            ax.text(x + 0.003, y + 0.0015, label_map[method], fontsize=7)
+
+        frontier = []
+        for method, x, y in pts:
+            dominated = False
+            for m2, x2, y2 in pts:
+                if m2 == method:
+                    continue
+                if x2 <= x and y2 >= y and (x2 < x or y2 > y):
+                    dominated = True
+                    break
+            if not dominated:
+                frontier.append((x, y))
+        frontier = sorted(frontier, key=lambda v: v[0])
+        fx = [v[0] for v in frontier]
+        fy = [v[1] for v in frontier]
+        ax.plot(fx, fy, linewidth=1.2, linestyle="--")
+        ax.set_title("Shadow" if shift == "shadow-shift" else "Regime")
+        ax.set_xlabel("Measurement overhead")
+        ax.set_ylabel("Coverage")
+        ax.set_xlim(0.15, 0.68)
+        ax.set_ylim(0.66, 0.93)
+
+    fig.tight_layout()
+    fig.savefig(figures_dir / "hard-shift-pareto-v6.pdf", bbox_inches="tight")
+    fig.savefig(figures_dir / "hard-shift-pareto-v6.png", dpi=200, bbox_inches="tight")
+    plt.close(fig)
+
+
 def run_irish_shift_script(
     project_dir: Path,
     output_json: Path,
@@ -886,6 +935,7 @@ def main():
         render_shift_figures(aggregated, rolling_out, figures_dir, args.alpha)
         render_aci_gamma_figure(gamma_agg, figures_dir, args.alpha)
         render_trigger_quantile_figure(trigger_agg, figures_dir, args.alpha)
+        render_hard_shift_pareto(aggregated, figures_dir)
 
         payload["synthetic_shift"] = {
             "aggregated": aggregated,

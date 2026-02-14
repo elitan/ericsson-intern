@@ -227,6 +227,7 @@ $\le .70$ & DACI ($.899$) & DACI ($.918$) \\
 \textbf{When to use which method.} Static CP is a strong default in stable conditions. Weighted CP helps moderate covariate shift when target feature support overlaps source. Triggered ACI is a middle point when overhead budget is tight. ACI is robust for severe sequential drift. DACI is the max-reliability mode when higher overhead is acceptable.
 
 \textbf{System implications.} Reliability gains translate to lower RLF proxy but require explicit overhead budgeting. Table~\ref{tab:overhead-caps} gives a simple control policy: low-budget mode prefers static or weighted CP, medium-budget mode uses triggered ACI, high-budget mode uses ACI, and max-reliability mode uses DACI.
+A coverage-overhead Pareto view in Appendix Fig.~\ref{fig:hard-shift-pareto} shows triggered ACI and DACI both lie on the frontier for hard shifts, while static and weighted CP dominate low-overhead points.
 
 \textbf{Limitations.} Synthetic channels still simplify real deployments. Irish traces have limited feature richness versus full network measurement reports. We evaluate offline; online deployment requires streaming integration and control-plane constraints.
 
@@ -265,6 +266,13 @@ Hard & $.898$ & 4.80 & $.903$ & 5.05 \\
 \includegraphics[width=\columnwidth]{figures/trigger-quantile-ablation-v6.pdf}
 \caption{Regime-switch triggered-ACI tradeoff over confidence-gate quantile. Higher quantiles increase coverage and overhead.}
 \label{fig:trigger-quantile}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{figures/hard-shift-pareto-v6.pdf}
+\caption{Hard-shift Pareto map (coverage vs overhead). Triggered ACI and DACI form practical frontier points for medium and high overhead budgets.}
+\label{fig:hard-shift-pareto}
 \end{figure}
 
 Measured medium-scenario latency: calibration $0.08$ ms, CP set construction $1.59\,\mu$s/sample, NN inference $0.50\,\mu$s/sample.

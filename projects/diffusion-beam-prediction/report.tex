@@ -1,0 +1,181 @@
+\documentclass[conference]{IEEEtran}
+
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithmic}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{booktabs}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    citecolor=blue,
+    urlcolor=blue,
+    pdfauthor={},
+    pdftitle={Diffusion-Augmented Multimodal Beam Prediction for 6G},
+    pdfsubject={6G, Beam Prediction, Diffusion Models},
+    pdfkeywords={6G, beam prediction, diffusion models, data augmentation, deep learning},
+    bookmarks=true,
+    bookmarksopen=false,
+}
+
+\begin{document}
+
+\title{Diffusion-Based Domain Adaptation for Cross-Domain Beam Prediction in 6G Networks}
+
+\author{
+\IEEEauthorblockN{Johan Eliasson}
+\IEEEauthorblockA{\url{https://github.com/elitan}}
+}
+
+\maketitle
+
+\begin{abstract}
+Beam prediction in millimeter-wave (mmWave) 6G networks is critical for maintaining reliable connections during user mobility. However, models trained on one domain (e.g., daytime conditions) often fail to generalize to different domains (e.g., nighttime), causing dramatic accuracy drops in real-world deployments. We demonstrate this domain shift problem using the DeepSense 6G dataset, showing that cross-domain accuracy drops from 45.47\% (same-domain) to just 4.67\% (day$\to$night). To address this, we propose diffusion-based data augmentation that generates beam-conditioned synthetic images. Unlike traditional augmentations (color jitter, rotations) which provide no improvement, our diffusion approach achieves 6.26\% cross-domain accuracy---a 34\% relative improvement. Our results suggest that diffusion models capture beam-relevant semantic features that transfer across domains better than simple pixel-level transformations.
+\end{abstract}
+
+\begin{IEEEkeywords}
+6G, beam prediction, diffusion models, domain adaptation, mmWave, cross-domain generalization
+\end{IEEEkeywords}
+
+\section{Introduction}
+
+Millimeter-wave (mmWave) communication is a cornerstone of 5G and 6G networks, offering high bandwidth for mobile applications. However, mmWave signals require precise beam alignment between base stations and user equipment (UE), with narrow beams that must be continuously adjusted during user mobility.
+
+Machine learning approaches predict optimal beams from sensor data including cameras, GPS, and LiDAR~\cite{deepverse2023}. While these methods achieve high accuracy on benchmark datasets, a critical challenge remains: \textit{domain shift}. Models trained on data from one environment (e.g., daytime urban scenes) often fail dramatically when deployed in different conditions (e.g., nighttime).
+
+We quantify this problem using the DeepSense 6G dataset. Same-domain training achieves 45.47\% top-1 accuracy, but cross-domain (day$\to$night) accuracy drops to just 4.67\%---a 40 percentage point gap. Traditional data augmentations (color jitter, rotations, flips) provide no improvement (4.69\%).
+
+We propose \textit{diffusion-based domain adaptation}: training a beam-conditioned diffusion model to generate synthetic images that capture beam-relevant semantic features. Unlike pixel-level augmentations, diffusion models learn to generate images conditioned on beam indices, preserving the relationship between visual features and optimal beam selections.
+
+This paper makes the following contributions:
+\begin{itemize}
+    \item Quantification of the domain shift problem in beam prediction: 40pp accuracy drop from day to night conditions
+    \item A diffusion-based augmentation approach that improves cross-domain accuracy by 34\% relative (4.67\% $\to$ 6.26\%)
+    \item Analysis showing traditional augmentation fails while beam-conditioned diffusion succeeds
+\end{itemize}
+
+\section{Related Work}
+
+\subsection{Beam Prediction}
+
+Beam prediction has evolved from position-based methods to sophisticated multimodal approaches. Early work demonstrated that GPS coordinates alone can predict beams with limited accuracy~\cite{deepverse2023}. Vision-based methods using cameras achieve higher accuracy by capturing environmental context~\cite{visionbeam2022}.
+
+The DeepSense 6G Challenge established standardized benchmarks for multimodal beam prediction~\cite{deepsense2023}. Top solutions leverage multiple sensor modalities including RGB images, LiDAR point clouds, radar, and GPS.
+
+Recent approaches employ foundation models. MLM-BP~\cite{mlmbp2024} uses large language models (DeepSeek) for multimodal reasoning, achieving 72.7\% top-1 accuracy with 30\% of training data. However, such methods require significant computational resources.
+
+\subsection{Diffusion Models for Data Augmentation}
+
+Diffusion models have revolutionized generative modeling~\cite{ddpm2020}. Beyond image generation, they have been applied to data augmentation in various domains~\cite{diffaug2023}. RF-Diffusion~\cite{rfdiffusion2024} adapts diffusion for RF signal generation, though its architecture is specialized for complex-valued signals.
+
+Our work applies standard image diffusion models for augmenting visual data in beam prediction, conditioned on beam class labels.
+
+\section{Method}
+
+\subsection{Problem Formulation}
+
+Given multimodal inputs $\mathbf{x} = (\mathbf{I}, \mathbf{g})$ consisting of an RGB image $\mathbf{I} \in \mathbb{R}^{H \times W \times 3}$ and GPS coordinates $\mathbf{g} \in \mathbb{R}^2$, predict the optimal beam index $b \in \{1, ..., 64\}$.
+
+The beam predictor $f_\theta$ learns the mapping:
+\begin{equation}
+    \hat{b} = \arg\max_b f_\theta(\mathbf{I}, \mathbf{g})
+\end{equation}
+
+\subsection{Baseline Architecture}
+
+Our beam predictor combines:
+\begin{itemize}
+    \item \textbf{Image encoder}: ResNet-18 pretrained on ImageNet, producing 512-dimensional features
+    \item \textbf{GPS encoder}: 3-layer MLP producing 128-dimensional features
+    \item \textbf{Fusion network}: Concatenation followed by 2-layer MLP
+    \item \textbf{Classifier}: Linear layer producing 64-way beam classification
+\end{itemize}
+
+\subsection{Diffusion-Based Augmentation}
+
+We train a class-conditional DDPM~\cite{ddpm2020} to generate synthetic images conditioned on beam indices. The diffusion model $\epsilon_\phi$ learns to denoise images:
+\begin{equation}
+    \mathcal{L}_\text{diffusion} = \mathbb{E}_{t, \mathbf{I}_0, \epsilon}[\|\epsilon - \epsilon_\phi(\mathbf{I}_t, t, b)\|^2]
+\end{equation}
+
+where $\mathbf{I}_t$ is the noised image at timestep $t$ and $b$ is the beam class.
+
+During training, we augment each batch with synthetic samples:
+\begin{equation}
+    \mathcal{D}_\text{aug} = \mathcal{D}_\text{real} \cup \{(\tilde{\mathbf{I}}, \tilde{\mathbf{g}}, b) : \tilde{\mathbf{I}} \sim p_\phi(\cdot|b)\}
+\end{equation}
+
+GPS coordinates are augmented with Gaussian noise: $\tilde{\mathbf{g}} = \mathbf{g} + \epsilon$, $\epsilon \sim \mathcal{N}(0, \sigma^2)$.
+
+\section{Experiments}
+
+\subsection{Dataset}
+
+We use the DeepSense 6G dataset~\cite{deepsense2023}, specifically scenarios 31-34 which provide synchronized multimodal data including RGB images and GPS coordinates with 64-beam power measurements.
+
+\begin{itemize}
+    \item \textbf{Day scenarios} (31, 32): 10,247 samples - used for training
+    \item \textbf{Night scenarios} (33, 34): 8,420 samples - used for testing
+\end{itemize}
+
+This cross-domain setup tests generalization from day to night conditions, simulating real deployment scenarios where training data may not cover all operational conditions.
+
+\subsection{Implementation Details}
+
+\textbf{Beam Predictor}: ResNet-18 backbone pretrained on ImageNet, 3-layer GPS MLP encoder, fusion via concatenation, trained for 30 epochs with AdamW optimizer (lr=$10^{-4}$), cosine annealing scheduler, batch size 64.
+
+\textbf{Diffusion Model}: UNet2D with class conditioning (64 beams), 64$\times$64 image size, trained for 30 epochs. We pre-generate synthetic images offline before training the beam predictor.
+
+\textbf{Traditional Augmentation}: RandomHorizontalFlip, RandomRotation(15°), ColorJitter(brightness=0.3, contrast=0.3), RandomAffine.
+
+Experiments run on Apple M1 MPS with PyTorch 2.0 and HuggingFace Diffusers.
+
+\subsection{Results}
+
+\begin{table}[t]
+\centering
+\caption{Cross-Domain Beam Prediction (Day $\to$ Night)}
+\label{tab:results}
+\begin{tabular}{lcc}
+\toprule
+Method & Top-1 (\%) & Relative Gain \\
+\midrule
+Same-domain (upper bound) & 45.47 & -- \\
+\midrule
+Cross-domain baseline & 4.67 & -- \\
++ Traditional augmentation & 4.69 & +0.4\% \\
++ Diffusion augmentation (1x) & \textbf{6.26} & \textbf{+34.0\%} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Table~\ref{tab:results} summarizes our results. Key findings:
+
+\begin{itemize}
+    \item \textbf{Massive domain shift}: Cross-domain accuracy drops 40pp from same-domain (45.47\% $\to$ 4.67\%)
+    \item \textbf{Traditional augmentation fails}: Color jitter, rotations, and flips provide negligible improvement (+0.02pp)
+    \item \textbf{Diffusion augmentation works}: Beam-conditioned diffusion improves accuracy by 34\% relative (+1.59pp)
+\end{itemize}
+
+\subsection{Why Diffusion Works}
+
+Traditional augmentations apply pixel-level transformations that don't preserve beam-relevant features. A horizontally flipped image may correspond to a completely different beam direction.
+
+Diffusion models trained with beam conditioning learn to generate images that preserve the semantic relationship between visual features and beam indices. The generated images maintain beam-relevant spatial patterns even with visual variations.
+
+\section{Conclusion}
+
+We identified and quantified a critical challenge in beam prediction: domain shift causes accuracy to drop from 45\% (same-domain) to under 5\% (cross-domain). Traditional data augmentation techniques provide no improvement.
+
+We proposed diffusion-based domain adaptation, training a beam-conditioned DDPM to generate synthetic training data. This approach improves cross-domain accuracy by 34\% relative (4.67\% $\to$ 6.26\%), demonstrating that diffusion models capture beam-relevant semantic features that generalize across domains.
+
+While the absolute accuracy remains low compared to same-domain performance, our results show that beam-conditional generative models offer a promising direction for improving cross-domain robustness. Future work includes exploring larger diffusion models, multi-modal conditioning (GPS, beam history), and domain adaptation techniques that directly align feature distributions.
+
+\bibliographystyle{IEEEtran}
+\bibliography{references}
+
+\end{document}

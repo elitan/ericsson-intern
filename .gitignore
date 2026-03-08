@@ -1,13 +1,16 @@
 # Python
 __pycache__/
 *.py[oc]
+.pytest_cache/
 build/
 dist/
 wheels/
 *.egg-info
+.uv/
+.python-version
 
 # Virtual environments
-.venv
+.venv/
 
 # macOS
 .DS_Store
@@ -17,5 +20,11 @@ data/
 
 # LaTeX build artifacts
 *.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
 *.log
 *.out
+*.synctex.gz
+*.toc

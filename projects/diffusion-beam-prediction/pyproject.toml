@@ -1,0 +1,34 @@
+[project]
+name = "diffbeam"
+version = "0.1.0"
+description = "Diffusion-augmented multimodal beam prediction for 6G"
+requires-python = ">=3.10"
+dependencies = [
+    "torch>=2.0",
+    "torchvision>=0.15",
+    "diffusers>=0.25",
+    "transformers>=4.35",
+    "accelerate>=0.25",
+    "numpy>=1.24",
+    "pandas>=2.0",
+    "pillow>=10.0",
+    "scikit-learn>=1.3",
+    "matplotlib>=3.7",
+    "tqdm>=4.65",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "ruff>=0.1",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/diffbeam"]
+
+[tool.ruff]
+line-length = 100

@@ -1,0 +1,55 @@
+# Data
+data/
+*.csv
+*.npy
+*.npz
+
+# Checkpoints
+checkpoints/
+*.pt
+*.pth
+*.ckpt
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.eggs/
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+.python-version
+
+# UV
+.uv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# LaTeX
+*.aux
+*.bbl
+*.blg
+*.log
+*.out
+*.toc
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+
+# Results
+outputs/
+results/
+*.json
+
+# Jupyter
+.ipynb_checkpoints/

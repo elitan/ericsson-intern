@@ -50,7 +50,7 @@ def load_driving_traces(data_dir: Path, max_files: Optional[int] = None) -> pd.D
     return pd.concat(traces, ignore_index=True)
 
 
-def preprocess_for_handover(df: pd.DataFrame) -> dict:
+def preprocess_for_handover(df: pd.DataFrame, prediction_horizon: int = 1) -> dict:
     """
     Preprocess Irish 5G data for handover prediction.
 
@@ -84,9 +84,10 @@ def preprocess_for_handover(df: pd.DataFrame) -> dict:
         if len(trace) < 10:
             continue
 
-        for i in range(len(trace) - 1):
+        last_idx = len(trace) - prediction_horizon
+        for i in range(max(last_idx, 0)):
             row = trace.iloc[i]
-            next_row = trace.iloc[i + 1]
+            next_row = trace.iloc[i + prediction_horizon]
 
             features = {
                 "rsrp": row["RSRP"],

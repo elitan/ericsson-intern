@@ -8,6 +8,7 @@ Implements:
 
 import numpy as np
 from sklearn.linear_model import LogisticRegression
+from collections import deque
 
 
 def calibrate_threshold(
@@ -201,6 +202,112 @@ class AdaptiveConformalInference:
         q_level = np.ceil((n + 1) * (1 - self.alpha_t)) / n
         q_level = np.clip(q_level, 0, 1)
         return np.quantile(cal_scores, q_level, method="higher")
+
+
+class DelayedAdaptiveConformalInference(AdaptiveConformalInference):
+    def __init__(self, alpha: float = 0.1, gamma: float = 0.01, feedback_delay: int = 0):
+        super().__init__(alpha=alpha, gamma=gamma)
+        self.feedback_delay = max(int(feedback_delay), 0)
+        self.pending = deque()
+
+    def reset(self):
+        super().reset()
+        self.pending.clear()
+
+    def observe(self, covered: bool):
+        self.pending.append(bool(covered))
+        if len(self.pending) > self.feedback_delay:
+            super().update(self.pending.popleft())
+
+    def flush(self):
+        while self.pending:
+            super().update(self.pending.popleft())
+
+
+class DelayedDynamicAdaptiveConformalInference:
+    def __init__(
+        self,
+        alpha: float = 0.1,
+        gamma_low: float = 0.005,
+        gamma_high: float = 0.02,
+        ema_beta: float = 0.95,
+        feedback_delay: int = 0,
+    ):
+        self.alpha = alpha
+        self.gamma_low = gamma_low
+        self.gamma_high = gamma_high
+        self.ema_beta = ema_beta
+        self.feedback_delay = max(int(feedback_delay), 0)
+        self.reset()
+
+    def reset(self):
+        self.alpha_t = float(self.alpha)
+        self.err_ema = float(self.alpha)
+        self.pending = deque()
+
+    def _apply_update(self, covered: bool):
+        err = 1 - int(covered)
+        self.err_ema = self.ema_beta * self.err_ema + (1 - self.ema_beta) * err
+        gamma_t = self.gamma_high if self.err_ema > self.alpha else self.gamma_low
+        self.alpha_t = self.alpha_t + gamma_t * (self.alpha - err)
+        self.alpha_t = np.clip(self.alpha_t, 0.001, 0.999)
+
+    def observe(self, covered: bool):
+        self.pending.append(bool(covered))
+        if len(self.pending) > self.feedback_delay:
+            self._apply_update(self.pending.popleft())
+
+    def flush(self):
+        while self.pending:
+            self._apply_update(self.pending.popleft())
+
+    def get_threshold(self, cal_scores: np.ndarray) -> float:
+        n = len(cal_scores)
+        q_level = np.ceil((n + 1) * (1 - self.alpha_t)) / n
+        q_level = np.clip(q_level, 0, 1)
+        return np.quantile(cal_scores, q_level, method="higher")
+
+
+class BudgetedDynamicAdaptiveConformalInference(DelayedDynamicAdaptiveConformalInference):
+    def __init__(
+        self,
+        alpha: float = 0.1,
+        gamma_low: float = 0.005,
+        gamma_high: float = 0.02,
+        ema_beta: float = 0.95,
+        feedback_delay: int = 0,
+        target_size_ratio: float = 0.25,
+        budget_gamma: float = 0.02,
+    ):
+        self.target_size_ratio = float(target_size_ratio)
+        self.budget_gamma = float(budget_gamma)
+        super().__init__(
+            alpha=alpha,
+            gamma_low=gamma_low,
+            gamma_high=gamma_high,
+            ema_beta=ema_beta,
+            feedback_delay=feedback_delay,
+        )
+
+    def _apply_update(self, covered: bool, size_ratio: float):
+        err = 1 - int(covered)
+        self.err_ema = self.ema_beta * self.err_ema + (1 - self.ema_beta) * err
+        gamma_t = self.gamma_high if self.err_ema > self.alpha else self.gamma_low
+        budget_term = self.budget_gamma * (float(size_ratio) - self.target_size_ratio)
+        self.alpha_t = self.alpha_t + gamma_t * (self.alpha - err) + budget_term
+        self.alpha_t = np.clip(self.alpha_t, 0.001, 0.999)
+
+    def observe(self, covered: bool, set_size: int, n_classes: int):
+        size_ratio = float(set_size) / max(int(n_classes), 1)
+        self.pending.append((bool(covered), size_ratio))
+        if len(self.pending) > self.feedback_delay:
+            covered_old, size_ratio_old = self.pending.popleft()
+            self._apply_update(covered_old, size_ratio_old)
+
+    def flush(self):
+        while self.pending:
+            covered_old, size_ratio_old = self.pending.popleft()
+            self._apply_update(covered_old, size_ratio_old)
 
 
 def calibrate_raps(
